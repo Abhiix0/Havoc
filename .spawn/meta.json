@@ -1,0 +1,11 @@
+{
+  "intent": "custom",
+  "framework": null,
+  "provider": null,
+  "spawn_version": "1.0.7",
+  "created_at": "2026-08-26T14:52:14.112943+00:00",
+  "generator": "custom",
+  "git": true,
+  "uv": false,
+  "source": "tree"
+}
