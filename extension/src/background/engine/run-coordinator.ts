@@ -26,6 +26,9 @@ import { ResourceRegistry } from './resource-registry';
 import { verifyTarget } from './safety-controller';
 import { buildChaosParams, injectChaos, ContentScriptUnavailableError } from './chaos-injector';
 import { createRunStateUpdateMessage } from '../../messaging/messages';
+import { getRunSnapshot } from './signal-engine';
+import { openRecoveryWindow } from './recovery-window';
+import { deriveFromRecoveryResult } from './finding-engine';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +126,9 @@ export async function startRun(
   broadcastStateUpdate(run, null);
   console.log(`[HAVOC][coordinator] created run ${run.runId} (${definition.kind})`);
 
+  // Track chaos-end time for recovery window (updated at STOPPING).
+  let chaosEndTime = now();
+
   try {
     // --- PREPARING ---
     run = await transition(run, 'PREPARING');
@@ -173,6 +179,7 @@ export async function startRun(
     await delay(durationMs, signal);
 
     // --- STOPPING ---
+    chaosEndTime = now();
     run = await transition(run, 'STOPPING');
 
   } catch (err) {
@@ -191,8 +198,44 @@ export async function startRun(
   // --- EVALUATING ---
   try {
     run = await transition(run, 'EVALUATING');
-    // Phase 5/6: Signal + Finding derivation goes here.
-    await delay(50);
+
+    const recoveryWindowMs = typeof definition.params.recoveryWindowMs === 'number'
+      ? definition.params.recoveryWindowMs
+      : 8_000;
+
+    // Open the recovery window — waits recoveryWindowMs for post-chaos events
+    // to accumulate in the signal engine buffer, then evaluates predicates.
+    const recoveryResult = await openRecoveryWindow(
+      {
+        runId: run.runId,
+        chaosEndTime,
+        windowMs: recoveryWindowMs,
+        // Static snapshots at STOPPING time — the callback below overrides with live data.
+        events: [],
+        signals: [],
+      },
+      () => getRunSnapshot(run.runId)
+    );
+
+    // Build Evidence and (when justified) a Finding from the recovery result.
+    const snapshot = getRunSnapshot(run.runId);
+    const eventIndex = new Map(snapshot.events.map((e) => [e.id, e]));
+    const signalIndex = new Map(snapshot.signals.map((s) => [s.id, s]));
+
+    const { finding, evidence } = deriveFromRecoveryResult(
+      run.runId,
+      recoveryResult,
+      eventIndex,
+      signalIndex
+    );
+
+    // Phase 7 will persist finding + evidence to IndexedDB here.
+    console.log(
+      `[HAVOC][coordinator] ${run.runId}: recovery=${recoveryResult.recovery.outcome}`,
+      finding ? `finding=${finding.severity} confidence=${finding.confidence.toFixed(2)}` : 'no finding',
+      `evidence=${evidence.length}`
+    );
+
   } catch (err) {
     return transitionToFailed(run, err);
   }

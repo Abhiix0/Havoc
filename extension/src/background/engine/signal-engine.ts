@@ -346,3 +346,50 @@ export function processEvent(event: HavocEvent): Signal[] {
   signals.forEach(logSignal);
   return signals;
 }
+
+/**
+ * Return a live snapshot of the event buffer and all emitted signals for a run.
+ * Used by the recovery window evaluator — called after the window expires so
+ * it captures the most recent state, not a snapshot taken at STOPPING time.
+ */
+export function getRunSnapshot(runId: string): { events: HavocEvent[]; signals: Signal[] } {
+  const buf = _buffers.get(runId);
+  if (buf === undefined) return { events: [], signals: [] };
+
+  // Return shallow copies so the evaluator cannot mutate the live buffer.
+  const events = [...buf.events];
+
+  // Reconstruct signals from derivedFrom provenance stored in the buffer.
+  // The buffer only stores events; signals were returned from processEvent()
+  // calls and not separately persisted. We rebuild them by re-running the
+  // derivers on the current buffer snapshot without emitting (read-only pass).
+  const signals = deriveSignalsFromBuffer(buf);
+
+  return { events, signals };
+}
+
+/**
+ * Re-derive all signals from a buffer snapshot for read-only inspection.
+ * Does NOT update the emitted set — purely observational.
+ */
+function deriveSignalsFromBuffer(buf: RunBuffer): Signal[] {
+  const signals: Signal[] = [];
+  // We stored emitted fingerprints — use them to reconstruct which signals
+  // were derived, pairing each fingerprint back to the signal's source event.
+  for (const event of buf.events) {
+    // Only re-derive types that were actually emitted to avoid fabricating signals.
+    if (buf.emitted.has(`RequestFailureObserved:${event.id}`)) {
+      const hasInjectionLink = typeof event.metadata?.injectionId === 'string';
+      signals.push(makeSignal('RequestFailureObserved', event.runId, hasInjectionLink ? 0.97 : 0.95, [event.id]));
+    }
+    if (buf.emitted.has(`LoadingStateDetected:${event.id}`)) {
+      // Confidence reconstruction: use 0.70 as the representative value
+      // (base 0.50 + proximity 0.20 minimum that caused emission).
+      signals.push(makeSignal('LoadingStateDetected', event.runId, 0.70, [event.id]));
+    }
+    if (buf.emitted.has(`ErrorStateDetected:${event.id}`)) {
+      signals.push(makeSignal('ErrorStateDetected', event.runId, 0.60, [event.id]));
+    }
+  }
+  return signals;
+}
