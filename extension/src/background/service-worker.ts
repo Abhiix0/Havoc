@@ -5,13 +5,12 @@
  *  1. onMessage listener registered synchronously.
  *  2. rehydrate() + openDatabase() in parallel.
  *
- * Phase 3 additions:
- *  - Handles CREATE_RUN: resolves the active tab when no explicit target is
- *    supplied, delegates to RunCoordinator.startRun(), returns the initial run
- *    as CREATE_RUN_RESPONSE immediately (coordinator drives the rest async).
- *  - Sequence counters now keyed on real runIds from the RunCoordinator;
- *    DEBUG_RUN_ID fallback only used for observations that arrive outside any
- *    active run (e.g. background tabs during development).
+ * Phase 5 additions:
+ *  - Every HavocEvent is fed through signal-engine.processEvent() immediately
+ *    after construction. Derived Signals are logged (no persistence yet).
+ *  - DOM_OBSERVATION messages from the content script are received here,
+ *    validated, converted to HavocEvents, and fed to the signal engine.
+ *  - Run buffer is cleared when a run reaches a terminal state.
  */
 
 import {
@@ -19,16 +18,19 @@ import {
   createCurrentRunResponseMessage,
   createCreateRunResponseMessage,
   type ObservationPayload,
+  type DomObservationPayload,
 } from '../messaging/messages';
 import {
   isBridgeMessage,
   isGetCurrentRunMessage,
   isObservationMessage,
   isCreateRunMessage,
+  isDomObservationMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { rehydrate, getCurrentRun } from './state';
-import { startRun } from './engine/run-coordinator';
+import { startRun, nextSequence } from './engine/run-coordinator';
+import { processEvent, clearRunBuffer } from './engine/signal-engine';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -39,38 +41,42 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-run sequence counters (in-memory, keyed by runId).
-// Falls back to a stable placeholder only when no run is active.
+// Per-run sequence counters.
+// The coordinator also exports nextSequence() — the SW uses it directly
+// here rather than maintaining a separate map.
 // ---------------------------------------------------------------------------
 const DEBUG_RUN_ID = 'debug-run' as const;
-const _sequenceCounters = new Map<string, number>();
-
-function nextSequence(runId: string): number {
-  const current = _sequenceCounters.get(runId) ?? 0;
-  const next = current + 1;
-  _sequenceCounters.set(runId, next);
-  return next;
-}
 
 // ---------------------------------------------------------------------------
 // Build a HavocEvent from a validated ObservationPayload.
 // ---------------------------------------------------------------------------
 function observationToEvent(obs: ObservationPayload, runId: string): HavocEvent {
-  const typeMap: Record<ObservationPayload['outcome'], string> = {
-    success:           'REQUEST_COMPLETED',
-    http_failure:      'REQUEST_HTTP_FAILURE',
-    transport_failure: 'REQUEST_TRANSPORT_FAILURE',
-    timeout:           'REQUEST_TIMEOUT',
-  };
+  // The sentinel url '__chaos_injected__' carries a CHAOS_INJECTED signal
+  // that was emitted by instrumentation.ts. Map it to CHAOS_INJECTED type
+  // instead of a REQUEST_* type.
+  const isChaosInjectedSentinel = obs.url === '__chaos_injected__' && obs.method === 'CHAOS';
 
-  return {
+  let type: string;
+  if (isChaosInjectedSentinel) {
+    type = 'CHAOS_INJECTED';
+  } else {
+    const typeMap: Record<ObservationPayload['outcome'], string> = {
+      success:           'REQUEST_COMPLETED',
+      http_failure:      'REQUEST_HTTP_FAILURE',
+      transport_failure: 'REQUEST_TRANSPORT_FAILURE',
+      timeout:           'REQUEST_TIMEOUT',
+    };
+    type = typeMap[obs.outcome];
+  }
+
+  const event: HavocEvent = {
     id: crypto.randomUUID(),
     runId,
     timestamp: Date.now(),
     sequence: nextSequence(runId),
-    type: typeMap[obs.outcome],
+    type,
     source: 'page',
-    resource: obs.url,
+    ...(isChaosInjectedSentinel ? {} : { resource: obs.url }),
     correlationId: obs.observationId,
     metadata: {
       transport: obs.transport,
@@ -78,30 +84,73 @@ function observationToEvent(obs: ObservationPayload, runId: string): HavocEvent 
       status: obs.status,
       duration: obs.duration,
       ...(obs.errorMessage !== undefined && { errorMessage: obs.errorMessage }),
+      ...(obs.injectionId !== undefined && { injectionId: obs.injectionId }),
+    },
+  };
+
+  return event;
+}
+
+// ---------------------------------------------------------------------------
+// Build a HavocEvent from a validated DomObservationPayload.
+// ---------------------------------------------------------------------------
+function domObservationToEvent(obs: DomObservationPayload, runId: string): HavocEvent {
+  return {
+    id: crypto.randomUUID(),
+    runId,
+    timestamp: obs.timestamp,
+    sequence: nextSequence(runId),
+    type: 'DOM_OBSERVATION',
+    source: 'content',
+    metadata: {
+      kind: obs.kind,
+      selector: obs.selector,
+      textSnippet: obs.textSnippet,
+      observedAt: obs.observedAt,
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Resolve the active tab for CREATE_RUN when no explicit target is provided.
+// Emit a HavocEvent: log it and feed it to the Signal Engine.
+// Phase 7 will also persist it to IndexedDB here.
+// ---------------------------------------------------------------------------
+function emitEvent(event: HavocEvent): void {
+  if (event.type !== 'DOM_OBSERVATION') {
+    // Log network/chaos events with detail; DOM events are high-volume so
+    // only log if the kind is interesting.
+    console.log(
+      `[HAVOC][SW] event #${event.sequence} ${event.type}`,
+      event.resource ?? event.metadata?.kind ?? '',
+      event.metadata?.status !== undefined
+        ? `(${event.metadata.status as number} ${(event.metadata.duration as number | undefined)?.toFixed(1) ?? '?'}ms)`
+        : ''
+    );
+  } else {
+    console.debug(
+      `[HAVOC][SW] DOM #${event.sequence}`,
+      event.metadata?.kind,
+      event.metadata?.selector
+    );
+  }
+
+  // Feed to Signal Engine — returns derived Signals (logged inside processEvent).
+  processEvent(event);
+}
+
+// ---------------------------------------------------------------------------
+// Resolve the active tab for CREATE_RUN.
 // ---------------------------------------------------------------------------
 async function resolveActiveTab(): Promise<Target | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || tab.id === undefined || !tab.url) return null;
-
   let origin: string;
   try {
     origin = new URL(tab.url).origin;
   } catch {
     return null;
   }
-
-  return {
-    tabId: tab.id,
-    origin,
-    url: tab.url,
-    frameId: 0,
-  };
+  return { tabId: tab.id, origin, url: tab.url, frameId: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,59 +162,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (isCreateRunMessage(message)) {
     (async () => {
       try {
-        // Resolve target: use explicit target if provided, otherwise the
-        // currently active tab at the moment the popup sends CREATE_RUN.
         let target: Target | null = message.target ?? null;
+        if (target === null) target = await resolveActiveTab();
         if (target === null) {
-          target = await resolveActiveTab();
-        }
-
-        if (target === null) {
-          sendResponse(createCreateRunResponseMessage(
-            undefined,
-            'Could not resolve a target tab — open a web page first'
-          ));
+          sendResponse(createCreateRunResponseMessage(undefined, 'Could not resolve a target tab — open a web page first'));
           return;
         }
 
-        // startRun is async and drives the full lifecycle. We respond
-        // immediately with the initial run state (CREATED) so the popup
-        // doesn't block. The coordinator broadcasts RUN_STATE_UPDATE on
-        // every subsequent transition.
         const runPromise = startRun(message.definition, target);
-
-        // The run is checkpointed synchronously to session storage in
-        // CREATED state before startRun's first await resolves — so
-        // getCurrentRun() is safe to call here.
-        // We wait one microtask tick to let the CREATED checkpoint land.
         await Promise.resolve();
-
         const initialRun = getCurrentRun();
         sendResponse(createCreateRunResponseMessage(initialRun ?? undefined));
 
-        // Let the lifecycle complete in the background.
-        runPromise.catch((err: unknown) => {
-          console.error('[HAVOC][SW] startRun error:', err);
-        });
+        runPromise
+          .then((finalRun) => {
+            // Clear the signal engine buffer when the run terminates.
+            clearRunBuffer(finalRun.runId);
+          })
+          .catch((err: unknown) => {
+            console.error('[HAVOC][SW] startRun error:', err);
+          });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         sendResponse(createCreateRunResponseMessage(undefined, msg));
       }
     })();
-    return true; // async response
+    return true;
+  }
+
+  // --- DOM_OBSERVATION (content script → SW) ---
+  if (isDomObservationMessage(message)) {
+    // Use the run the content script tagged this observation with, or the
+    // currently active run, or fall back to the debug placeholder.
+    const runId = message.payload.runId ?? getCurrentRun()?.runId ?? DEBUG_RUN_ID;
+    const event = domObservationToEvent(message.payload, runId);
+    emitEvent(event);
+    sendResponse(null);
+    return true;
   }
 
   // --- REQUEST_OBSERVATION (page → content → SW) ---
   if (isObservationMessage(message)) {
-    // Use the real runId if a run is active; fall back to debug placeholder.
     const runId = getCurrentRun()?.runId ?? DEBUG_RUN_ID;
     const event = observationToEvent(message.payload, runId);
-    console.log(
-      `[HAVOC][SW] event #${event.sequence} ${event.type}`,
-      event.resource,
-      `(${event.metadata?.status as number}`,
-      `${(event.metadata?.duration as number).toFixed(1)}ms)`
-    );
+    emitEvent(event);
     sendResponse(null);
     return true;
   }
@@ -179,9 +219,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- Bridge protocol messages relayed from content script ---
   if (!isBridgeMessage(message)) return false;
-
   console.log('[HAVOC][SW] received', message.type, 'from tab', sender.tab?.id);
-
   if (message.type === 'BRIDGE_HELLO') {
     sendResponse(createBridgeMessage('BRIDGE_READY'));
     return true;

@@ -14,6 +14,9 @@ import {
   type RuntimeMessageType,
   type ChaosParams,
   type FetchFailureMode,
+  type DomObservationMessage,
+  type DomObservationPayload,
+  type DomMutationKind,
 } from './messages';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +30,7 @@ const VALID_BRIDGE_TYPES: ReadonlySet<BridgeMessageType> = new Set([
   'REQUEST_OBSERVATION',
   'INJECT_CHAOS',
   'REMOVE_CHAOS',
+  'DOM_OBSERVATION',
 ]);
 
 export function isBridgeMessage(data: unknown): data is BridgeMessage {
@@ -120,6 +124,43 @@ export function isRemoveChaosMessage(
   if (data.type !== 'REMOVE_CHAOS') return false;
   const p = data.payload as Record<string, unknown> | undefined;
   return typeof p?.injectionId === 'string' && p.injectionId.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// DomObservationMessage validator
+// ---------------------------------------------------------------------------
+
+const VALID_DOM_MUTATION_KINDS: ReadonlySet<DomMutationKind> = new Set([
+  'loading_indicator_appeared',
+  'loading_indicator_removed',
+  'error_text_appeared',
+  'aria_live_changed',
+]);
+
+export function isDomObservationPayload(data: unknown): data is DomObservationPayload {
+  if (typeof data !== 'object' || data === null) return false;
+  const p = data as Record<string, unknown>;
+  if (typeof p.observedAt !== 'number' || !isFinite(p.observedAt)) return false;
+  if (typeof p.timestamp !== 'number' || !isFinite(p.timestamp)) return false;
+  if (!VALID_DOM_MUTATION_KINDS.has(p.kind as DomMutationKind)) return false;
+  if (typeof p.selector !== 'string') return false;
+  if (typeof p.textSnippet !== 'string') return false;
+  if (p.runId !== null && typeof p.runId !== 'string') return false;
+  return true;
+}
+
+/**
+ * Guard for DOM_OBSERVATION messages sent directly from the content script
+ * to the SW via chrome.runtime.sendMessage (not via postMessage — the content
+ * script is trusted so no additional channel validation is needed).
+ */
+export function isDomObservationMessage(data: unknown): data is DomObservationMessage {
+  if (typeof data !== 'object' || data === null) return false;
+  const msg = data as Record<string, unknown>;
+  if (msg.namespace !== HAVOC_NAMESPACE) return false;
+  if (msg.version !== BRIDGE_PROTOCOL_VERSION) return false;
+  if (msg.type !== 'DOM_OBSERVATION') return false;
+  return isDomObservationPayload(msg.payload);
 }
 
 // ---------------------------------------------------------------------------

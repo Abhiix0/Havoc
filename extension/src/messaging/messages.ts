@@ -15,6 +15,10 @@ export const BRIDGE_PROTOCOL_VERSION = 1 as const;
  * INJECT_CHAOS / REMOVE_CHAOS travel SW → content → page (reverse direction
  * from observations). The content script relays them via window.postMessage;
  * bridge.ts receives and applies them to the instrumentation layer.
+ *
+ * DOM_OBSERVATION carries lightweight DOM mutation signals from the content
+ * script's MutationObserver up to the SW, where the Signal Engine uses them
+ * to derive LoadingStateDetected and ErrorStateDetected signals.
  */
 export type BridgeMessageType =
   | 'BRIDGE_HELLO'
@@ -22,7 +26,8 @@ export type BridgeMessageType =
   | 'BRIDGE_ERROR'
   | 'REQUEST_OBSERVATION'
   | 'INJECT_CHAOS'
-  | 'REMOVE_CHAOS';
+  | 'REMOVE_CHAOS'
+  | 'DOM_OBSERVATION';
 
 /** Messages that travel over the popup ↔ service-worker channel (chrome.runtime). */
 export type RuntimeMessageType =
@@ -120,6 +125,65 @@ export function createInjectChaosMessage(params: ChaosParams): BridgeMessage {
 /** SW → page (via content script relay): deactivate chaos and restore fetch. */
 export function createRemoveChaosMessage(injectionId: string): BridgeMessage {
   return createBridgeMessage('REMOVE_CHAOS', { injectionId });
+}
+
+// ---------------------------------------------------------------------------
+// DOM observation payload — emitted by the content script's MutationObserver.
+// Travels content → SW (via chrome.runtime.sendMessage, not postMessage,
+// because the content script already has chrome.runtime access and we want
+// to keep this out of the untrusted page world).
+// ---------------------------------------------------------------------------
+
+/**
+ * Coarse classification of what the MutationObserver detected.
+ * Deliberately kept narrow — we only emit what we can classify with
+ * reasonable precision. Unclassified mutations are not emitted.
+ *
+ *   loading_indicator_appeared  — an element matching loading/spinner
+ *                                 heuristics became visible
+ *   loading_indicator_removed   — such an element was removed
+ *   error_text_appeared         — visible text matching error/failure
+ *                                 patterns was added to the DOM
+ *   aria_live_changed           — an aria-live region changed (often
+ *                                 used for status/error announcements)
+ */
+export type DomMutationKind =
+  | 'loading_indicator_appeared'
+  | 'loading_indicator_removed'
+  | 'error_text_appeared'
+  | 'aria_live_changed';
+
+export interface DomObservationPayload {
+  /** Monotonic timestamp from the MutationObserver record (performance.now() basis). */
+  observedAt: number;
+  /** Wall-clock timestamp when the content script emitted this observation. */
+  timestamp: number;
+  kind: DomMutationKind;
+  /**
+   * CSS selector of the mutated element, truncated to 120 chars.
+   * Best-effort — may be empty if the element has no stable selector.
+   */
+  selector: string;
+  /**
+   * Up to 80 chars of the element's trimmed textContent at observation time.
+   * Used for error_text_appeared pattern matching in the Signal Engine.
+   */
+  textSnippet: string;
+  /** The runId active at observation time, or null if no run is active. */
+  runId: string | null;
+}
+
+export interface DomObservationMessage {
+  namespace: typeof HAVOC_NAMESPACE;
+  version: typeof BRIDGE_PROTOCOL_VERSION;
+  type: 'DOM_OBSERVATION';
+  payload: DomObservationPayload;
+}
+
+export function createDomObservationMessage(
+  payload: DomObservationPayload
+): DomObservationMessage {
+  return { namespace: HAVOC_NAMESPACE, version: BRIDGE_PROTOCOL_VERSION, type: 'DOM_OBSERVATION', payload };
 }
 
 // ---------------------------------------------------------------------------

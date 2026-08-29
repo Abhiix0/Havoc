@@ -1,0 +1,348 @@
+/**
+ * signal-engine.ts — derives Signal objects from the raw HavocEvent stream.
+ *
+ * Architecture:
+ *   processEvent(event) is called by the SW on every HavocEvent as it arrives.
+ *   The engine maintains an in-memory EventBuffer per run. Each deriver rule
+ *   inspects the buffer and the incoming event, and may emit zero or more Signals.
+ *
+ * Three signal types in Phase 5:
+ *
+ *   RequestFailureObserved
+ *     Source: REQUEST_TRANSPORT_FAILURE, REQUEST_HTTP_FAILURE, REQUEST_TIMEOUT
+ *     Confidence: 0.95 — directly observed from instrumentation, not inferred.
+ *       Discounted slightly from 1.0 because the injectionId linkage is not
+ *       guaranteed (observations outside a chaos window still arrive here).
+ *       When injectionId is present (chaos-caused), confidence is 0.97.
+ *
+ *   LoadingStateDetected
+ *     Source: DOM_OBSERVATION kind=loading_indicator_appeared, correlated with
+ *       a REQUEST_* failure or CHAOS_INJECTED within the look-back window.
+ *     Confidence: computed from timing proximity and DOM signal specificity:
+ *       base = 0.5 (loading indicator appeared, but no causal link proven)
+ *       +0.20 if a failure event exists within 2 s before the DOM mutation
+ *       +0.15 if the mutation is on an aria-role=progressbar element (specific)
+ *       +0.10 if a CHAOS_INJECTED event is in the buffer for the same run
+ *       Maximum: 0.95 — capped because DOM heuristics are never certain.
+ *
+ *   ErrorStateDetected
+ *     Source: DOM_OBSERVATION kind=error_text_appeared or aria_live_changed,
+ *       correlated with failure events in the look-back window.
+ *     Confidence: computed from timing and text strength:
+ *       base = 0.35 (error text appeared — very loose heuristic)
+ *       +0.25 if a failure event exists within 3 s before the DOM mutation
+ *       +0.20 if kind=aria_live_changed (accessible error announcement — stronger)
+ *       +0.15 if the text matches a high-specificity error pattern (regex below)
+ *       Maximum: 0.90 — capped because text matching is inherently ambiguous.
+ *
+ * Provenance:
+ *   Every Signal stores derivedFrom: Array<HavocEvent['id']> — the exact event
+ *   ids that contributed to the derivation. Never emit a Signal without at least
+ *   one derivedFrom entry.
+ *
+ * De-duplication:
+ *   The engine tracks emitted signal fingerprints per run to avoid re-emitting
+ *   the same signal for the same causal event. Fingerprint = type + primaryEventId.
+ */
+
+import type { HavocEvent } from '../../domain/event';
+import type { Signal } from '../../domain/signal';
+import type { DomObservationPayload } from '../../messaging/messages';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** A HavocEvent that carries a DOM observation in its metadata. */
+interface DomHavocEvent extends HavocEvent {
+  type: 'DOM_OBSERVATION';
+  metadata: Record<string, unknown> & {
+    kind: DomObservationPayload['kind'];
+    selector: string;
+    textSnippet: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Events older than this are pruned from the buffer to bound memory usage. */
+const BUFFER_TTL_MS = 60_000;
+
+/** Look-back window for causal correlation (LoadingStateDetected). */
+const LOADING_LOOKBACK_MS = 2_000;
+
+/** Look-back window for causal correlation (ErrorStateDetected). */
+const ERROR_LOOKBACK_MS = 3_000;
+
+/**
+ * High-specificity error text pattern — strings that almost certainly
+ * indicate an application-level error state, not just background noise.
+ * Used to boost confidence in ErrorStateDetected.
+ */
+const HIGH_SPECIFICITY_ERROR_RE =
+  /\b(failed to load|could not (fetch|load|connect)|network error|service unavailable|try again later|request failed|error loading|unable to (fetch|load|connect))\b/i;
+
+const FAILURE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'REQUEST_TRANSPORT_FAILURE',
+  'REQUEST_HTTP_FAILURE',
+  'REQUEST_TIMEOUT',
+]);
+
+// ---------------------------------------------------------------------------
+// Per-run state
+// ---------------------------------------------------------------------------
+
+interface RunBuffer {
+  events: HavocEvent[];
+  /** Fingerprints of already-emitted signals: type + ':' + primaryEventId */
+  emitted: Set<string>;
+}
+
+const _buffers = new Map<string, RunBuffer>();
+
+function getBuffer(runId: string): RunBuffer {
+  let buf = _buffers.get(runId);
+  if (buf === undefined) {
+    buf = { events: [], emitted: new Set() };
+    _buffers.set(runId, buf);
+  }
+  return buf;
+}
+
+function pruneBuffer(buf: RunBuffer, now: number): void {
+  const cutoff = now - BUFFER_TTL_MS;
+  let i = 0;
+  while (i < buf.events.length && (buf.events[i]?.timestamp ?? 0) < cutoff) i++;
+  if (i > 0) buf.events.splice(0, i);
+}
+
+/** Clear a run's buffer when the run ends. */
+export function clearRunBuffer(runId: string): void {
+  _buffers.delete(runId);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeSignal(
+  type: string,
+  runId: string,
+  confidence: number,
+  derivedFrom: string[]
+): Signal {
+  return {
+    id: crypto.randomUUID(),
+    runId,
+    type,
+    confidence: Math.min(1, Math.max(0, confidence)),
+    derivedFrom,
+    timestamp: Date.now(),
+  };
+}
+
+function logSignal(signal: Signal): void {
+  console.log(
+    `[HAVOC][signal] ${signal.type}`,
+    `confidence=${signal.confidence.toFixed(2)}`,
+    `derivedFrom=[${signal.derivedFrom.slice(0, 3).join(', ')}${signal.derivedFrom.length > 3 ? '…' : ''}]`
+  );
+}
+
+function isDomObservationEvent(event: HavocEvent): event is DomHavocEvent {
+  return (
+    event.type === 'DOM_OBSERVATION' &&
+    typeof event.metadata?.kind === 'string'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Deriver 1 — RequestFailureObserved
+//
+// Confidence heuristic:
+//   0.95 baseline — these events come from instrumented fetch/XHR calls.
+//   We cannot claim 1.0 because:
+//     a) The failure may be a pre-existing flaky network, not caused by chaos.
+//     b) The injectionId linkage only exists when chaos is active.
+//   When injectionId is present (chaos was active during this request), we
+//   boost to 0.97 because we have direct causal evidence.
+// ---------------------------------------------------------------------------
+
+function deriveRequestFailure(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (!FAILURE_EVENT_TYPES.has(event.type)) return null;
+
+  const fingerprint = `RequestFailureObserved:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+  buf.emitted.add(fingerprint);
+
+  const hasInjectionLink = typeof event.metadata?.injectionId === 'string';
+  const confidence = hasInjectionLink ? 0.97 : 0.95;
+
+  return makeSignal('RequestFailureObserved', event.runId, confidence, [event.id]);
+}
+
+// ---------------------------------------------------------------------------
+// Deriver 2 — LoadingStateDetected
+//
+// Confidence heuristic:
+//   Base 0.50 — a loading indicator appeared, but we don't know why.
+//   +0.20 if a failure event is in the buffer within LOADING_LOOKBACK_MS before
+//          this DOM mutation (temporal proximity = causal hint).
+//   +0.15 if the mutation element has role=progressbar (more specific than a
+//          generic spinner class — app explicitly labelled it a progress bar).
+//   +0.10 if a CHAOS_INJECTED event exists for this run in the buffer
+//          (confirms chaos was active, not just ambient failures).
+//   Cap 0.95 — DOM heuristics can never be fully certain.
+// ---------------------------------------------------------------------------
+
+function deriveLoadingState(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (!isDomObservationEvent(event)) return null;
+  if (event.metadata.kind !== 'loading_indicator_appeared') return null;
+
+  const fingerprint = `LoadingStateDetected:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+
+  const now = event.timestamp;
+  const derivedFrom: string[] = [event.id];
+
+  // Find failure events within the look-back window.
+  const recentFailures = buf.events.filter(
+    (e) =>
+      FAILURE_EVENT_TYPES.has(e.type) &&
+      e.timestamp >= now - LOADING_LOOKBACK_MS &&
+      e.timestamp <= now
+  );
+
+  if (recentFailures.length === 0) {
+    // No causal link — only emit if base confidence is worth reporting.
+    // Threshold: 0.50 alone is noise. Skip until we have corroboration.
+    return null;
+  }
+
+  recentFailures.forEach((e) => derivedFrom.push(e.id));
+
+  let confidence = 0.50 + 0.20; // base + proximity boost
+
+  // Specificity boost: progressbar role in selector.
+  if (/progressbar/i.test(event.metadata.selector)) {
+    confidence += 0.15;
+    derivedFrom.push(event.id); // already in, no dup needed — selector noted in metadata
+  }
+
+  // Chaos active boost: CHAOS_INJECTED in buffer for this run.
+  const chaosEvent = buf.events.find((e) => e.type === 'CHAOS_INJECTED' && e.runId === event.runId);
+  if (chaosEvent !== undefined) {
+    confidence += 0.10;
+    derivedFrom.push(chaosEvent.id);
+  }
+
+  buf.emitted.add(fingerprint);
+  return makeSignal('LoadingStateDetected', event.runId, Math.min(confidence, 0.95), derivedFrom);
+}
+
+// ---------------------------------------------------------------------------
+// Deriver 3 — ErrorStateDetected
+//
+// Confidence heuristic:
+//   Base 0.35 — error text appeared, but this is a loose heuristic. The word
+//   "error" appears in many benign contexts (e.g. "no errors found").
+//   +0.25 if a failure event is in the buffer within ERROR_LOOKBACK_MS (temporal
+//          proximity is the strongest available signal for causality here).
+//   +0.20 if kind=aria_live_changed (the app explicitly announced a status
+//          change via an accessible live region — apps don't do this for benign
+//          states, so it's a much stronger indicator than raw text).
+//   +0.15 if the text matches HIGH_SPECIFICITY_ERROR_RE (phrases like
+//          "failed to load" are rarely used in non-error states).
+//   Cap 0.90 — text classification is inherently ambiguous.
+// ---------------------------------------------------------------------------
+
+function deriveErrorState(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (!isDomObservationEvent(event)) return null;
+  if (
+    event.metadata.kind !== 'error_text_appeared' &&
+    event.metadata.kind !== 'aria_live_changed'
+  ) {
+    return null;
+  }
+
+  const fingerprint = `ErrorStateDetected:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+
+  const now = event.timestamp;
+  const derivedFrom: string[] = [event.id];
+
+  let confidence = 0.35;
+
+  // Temporal proximity to a failure event.
+  const recentFailures = buf.events.filter(
+    (e) =>
+      FAILURE_EVENT_TYPES.has(e.type) &&
+      e.timestamp >= now - ERROR_LOOKBACK_MS &&
+      e.timestamp <= now
+  );
+
+  if (recentFailures.length === 0 && event.metadata.kind === 'error_text_appeared') {
+    // Text-only without any failure events — too noisy to emit.
+    return null;
+  }
+
+  recentFailures.forEach((e) => derivedFrom.push(e.id));
+  if (recentFailures.length > 0) confidence += 0.25;
+
+  // aria-live is a stronger signal.
+  if (event.metadata.kind === 'aria_live_changed') {
+    confidence += 0.20;
+  }
+
+  // High-specificity text match.
+  if (HIGH_SPECIFICITY_ERROR_RE.test(event.metadata.textSnippet)) {
+    confidence += 0.15;
+  }
+
+  buf.emitted.add(fingerprint);
+  return makeSignal('ErrorStateDetected', event.runId, Math.min(confidence, 0.90), derivedFrom);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Feed a HavocEvent into the Signal Engine.
+ * Returns zero or more newly derived Signals.
+ * Called by the SW on every event as it is constructed — including
+ * DOM_OBSERVATION events constructed from DomObservationMessage payloads.
+ */
+export function processEvent(event: HavocEvent): Signal[] {
+  const buf = getBuffer(event.runId);
+  const now = event.timestamp;
+
+  // Add the event to the buffer first so derivers can see it.
+  buf.events.push(event);
+  pruneBuffer(buf, now);
+
+  const signals: Signal[] = [];
+
+  const s1 = deriveRequestFailure(event, buf);
+  if (s1 !== null) signals.push(s1);
+
+  const s2 = deriveLoadingState(event, buf);
+  if (s2 !== null) signals.push(s2);
+
+  const s3 = deriveErrorState(event, buf);
+  if (s3 !== null) signals.push(s3);
+
+  signals.forEach(logSignal);
+  return signals;
+}
