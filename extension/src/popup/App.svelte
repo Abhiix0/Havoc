@@ -11,9 +11,10 @@
   } from '../messaging/validator';
   import type { ExperimentRun } from '../domain/run';
   import type { ExperimentDefinition } from '../domain/experiment';
+  import type { FetchFailureMode } from '../messaging/messages';
 
   // ---------------------------------------------------------------------------
-  // State — popup holds NO authoritative state, only a display mirror.
+  // Display state
   // ---------------------------------------------------------------------------
   let run: ExperimentRun | null = null;
   let loading = true;
@@ -21,18 +22,52 @@
   let starting = false;
 
   // ---------------------------------------------------------------------------
-  // Hardcoded test definition for Phase 3 (no real injection yet).
+  // Experiment configuration
   // ---------------------------------------------------------------------------
-  const TEST_DEFINITION: ExperimentDefinition = {
-    id: crypto.randomUUID(),
-    kind: 'fetch_latency',
-    name: 'Phase 3 smoke test',
-    description: 'Exercises the run lifecycle without any chaos injection.',
-    params: {},
-  };
+  type KindOption = 'fetch_latency' | 'fetch_failure';
+  let selectedKind: KindOption = 'fetch_latency';
+
+  // fetch_latency params
+  let delayMs = 800;
+  let durationMs = 5000;
+
+  // fetch_failure params
+  let failureMode: FetchFailureMode = 'transport_error';
+  let syntheticStatus = 503;
+  let timeoutMs = 8000;
+
+  function buildDefinition(): ExperimentDefinition {
+    const base = {
+      id: crypto.randomUUID(),
+      name: selectedKind === 'fetch_latency'
+        ? `Fetch latency +${delayMs}ms`
+        : `Fetch failure (${failureMode})`,
+      description: 'Phase 4 chaos experiment',
+      durationMs,
+    };
+
+    if (selectedKind === 'fetch_latency') {
+      return {
+        ...base,
+        kind: 'fetch_latency' as const,
+        params: { delayMs, durationMs },
+      };
+    } else {
+      return {
+        ...base,
+        kind: 'fetch_failure' as const,
+        params: {
+          mode: failureMode,
+          durationMs,
+          ...(failureMode === 'synthetic_http_error' && { syntheticStatus }),
+          ...(failureMode === 'synthetic_timeout'    && { timeoutMs }),
+        },
+      };
+    }
+  }
 
   // ---------------------------------------------------------------------------
-  // Fetch current run on mount.
+  // Mount: fetch current state + subscribe to updates
   // ---------------------------------------------------------------------------
   onMount(async () => {
     try {
@@ -49,7 +84,6 @@
       loading = false;
     }
 
-    // Subscribe to live state updates pushed by the coordinator.
     chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   });
 
@@ -57,28 +91,24 @@
     chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
   });
 
-  // ---------------------------------------------------------------------------
-  // Runtime message handler — receives RUN_STATE_UPDATE from the coordinator.
-  // ---------------------------------------------------------------------------
   function handleRuntimeMessage(message: unknown): void {
     if (isRunStateUpdateMessage(message)) {
       run = message.run;
-      // If a run just completed/failed, clear starting flag.
       if (run === null) starting = false;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // CREATE_RUN — popup sends the request, coordinator drives the lifecycle.
+  // CREATE_RUN
   // ---------------------------------------------------------------------------
   async function createRun(): Promise<void> {
-    if (starting) return;
+    if (starting || isRunActive) return;
     starting = true;
     error = null;
 
     try {
       const response: unknown = await chrome.runtime.sendMessage(
-        createCreateRunMessage(TEST_DEFINITION)
+        createCreateRunMessage(buildDefinition())
       );
 
       if (isCreateRunResponseMessage(response)) {
@@ -86,8 +116,6 @@
           error = response.error;
           starting = false;
         } else {
-          // Run started — initial state comes back in response.run,
-          // subsequent transitions arrive via RUN_STATE_UPDATE.
           run = response.run ?? null;
         }
       } else {
@@ -97,12 +125,20 @@
     } catch (e) {
       error = e instanceof Error ? e.message : 'Could not reach service worker';
       starting = false;
-      console.error('[HAVOC][popup] createRun error', e);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Derived display values.
+  // ABORT_RUN — sends a message to trigger abortRun() in the coordinator
+  // ---------------------------------------------------------------------------
+  async function abortRun(): Promise<void> {
+    // We'll add an ABORT_RUN message type in a follow-up; for now a simple
+    // reload of the popup state is sufficient in development.
+    await chrome.runtime.sendMessage(createGetCurrentRunMessage());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived
   // ---------------------------------------------------------------------------
   const TERMINAL = new Set([
     'COMPLETED', 'FAILED', 'ABORTED', 'TIMED_OUT', 'CLEANUP_FAILED', 'TARGET_LOST',
@@ -116,83 +152,170 @@
     : error !== null
       ? `error: ${error}`
       : run === null
-        ? 'no active run'
+        ? 'idle'
         : run.state;
 
   $: stateClass = run === null
     ? 'idle'
-    : run.state === 'COMPLETED'     ? 'done'
-    : run.state === 'CLEANUP_FAILED'? 'warn'
-    : TERMINAL.has(run.state)       ? 'fail'
+    : run.state === 'COMPLETED'      ? 'done'
+    : run.state === 'ACTIVE'         ? 'chaos'
+    : run.state === 'CLEANUP_FAILED' ? 'warn'
+    : TERMINAL.has(run.state)        ? 'fail'
     : 'active';
 </script>
 
 <main>
   <h1>HAVOC</h1>
 
-  <p class="status {stateClass}">
-    {statusLabel}
-  </p>
+  <p class="status {stateClass}">{statusLabel}</p>
 
   {#if run !== null}
     <dl class="run-meta">
-      <dt>run</dt>        <dd>{run.runId.slice(0, 8)}…</dd>
-      <dt>state</dt>      <dd>{run.state}</dd>
-      <dt>experiment</dt> <dd>{run.definition.name}</dd>
-      <dt>target</dt>     <dd>tab {run.target.tabId}</dd>
-      <dt>origin</dt>     <dd>{run.target.origin}</dd>
+      <dt>run</dt>    <dd>{run.runId.slice(0, 8)}…</dd>
+      <dt>state</dt>  <dd>{run.state}</dd>
+      <dt>kind</dt>   <dd>{run.definition.kind}</dd>
+      <dt>target</dt> <dd>tab {run.target.tabId} · {run.target.origin}</dd>
     </dl>
   {/if}
 
+  <!-- Config panel — only shown when idle -->
+  {#if !isRunActive && !starting}
+    <fieldset class="config">
+      <legend>experiment</legend>
+
+      <label>
+        kind
+        <select bind:value={selectedKind}>
+          <option value="fetch_latency">fetch latency</option>
+          <option value="fetch_failure">fetch failure</option>
+        </select>
+      </label>
+
+      <label>
+        duration (ms)
+        <input type="number" min="500" max="60000" step="500" bind:value={durationMs} />
+      </label>
+
+      {#if selectedKind === 'fetch_latency'}
+        <label>
+          delay (ms)
+          <input type="number" min="0" max="10000" step="100" bind:value={delayMs} />
+        </label>
+      {:else}
+        <label>
+          failure mode
+          <select bind:value={failureMode}>
+            <option value="transport_error">transport error</option>
+            <option value="synthetic_http_error">synthetic HTTP error</option>
+            <option value="synthetic_timeout">synthetic timeout</option>
+          </select>
+        </label>
+
+        {#if failureMode === 'synthetic_http_error'}
+          <label>
+            status code
+            <input type="number" min="400" max="599" step="1" bind:value={syntheticStatus} />
+          </label>
+        {/if}
+
+        {#if failureMode === 'synthetic_timeout'}
+          <label>
+            timeout (ms)
+            <input type="number" min="1000" max="60000" step="1000" bind:value={timeoutMs} />
+          </label>
+        {/if}
+      {/if}
+    </fieldset>
+  {/if}
+
   <div class="actions">
-    <button
-      on:click={createRun}
-      disabled={!canStart}
-      class:spinning={starting && !isRunActive}
-    >
+    <button on:click={createRun} disabled={!canStart} class:spinning={starting}>
       {#if starting && !isRunActive}
         starting…
       {:else if isRunActive}
         running…
       {:else}
-        start run
+        ▶ start run
       {/if}
     </button>
   </div>
 </main>
 
 <style>
-  main { padding: 12px; min-width: 240px; font-family: monospace; }
+  main {
+    padding: 12px;
+    min-width: 260px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #d0d0d0;
+    background: #111;
+  }
 
   h1 {
     font-size: 13px;
     letter-spacing: 3px;
     margin: 0 0 8px;
     text-transform: uppercase;
+    color: #fff;
   }
 
   .status {
-    font-size: 12px;
     margin: 0 0 10px;
-    padding: 3px 6px;
+    padding: 3px 7px;
     border-radius: 3px;
-    background: #1a1a1a;
-    color: #888;
+    font-size: 11px;
+    background: #1e1e1e;
+    color: #777;
+    display: inline-block;
   }
-  .status.active  { color: #7dd3fc; background: #0c2233; }
-  .status.done    { color: #86efac; background: #0b2417; }
-  .status.fail    { color: #fca5a5; background: #2d0b0b; }
-  .status.warn    { color: #fde68a; background: #2d1f00; }
+  .status.active { color: #7dd3fc; background: #0c2233; }
+  .status.chaos  { color: #f97316; background: #2a1200; }
+  .status.done   { color: #86efac; background: #0b2417; }
+  .status.fail   { color: #fca5a5; background: #2d0b0b; }
+  .status.warn   { color: #fde68a; background: #2d1f00; }
 
   dl {
-    font-size: 11px;
     display: grid;
     grid-template-columns: max-content 1fr;
     gap: 2px 8px;
     margin: 0 0 10px;
+    font-size: 11px;
   }
-  dt { opacity: 0.45; text-align: right; }
+  dt { opacity: 0.4; text-align: right; }
   dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  fieldset.config {
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 6px 8px 8px;
+    margin: 0 0 10px;
+  }
+  legend {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: 0.5;
+    padding: 0 4px;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 4px 0;
+    font-size: 11px;
+    opacity: 0.8;
+  }
+  select, input[type="number"] {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    color: #d0d0d0;
+    border-radius: 3px;
+    padding: 2px 5px;
+    font-family: monospace;
+    font-size: 11px;
+    width: 130px;
+  }
 
   .actions { display: flex; gap: 6px; }
 
@@ -202,13 +325,13 @@
     font-size: 11px;
     font-family: monospace;
     cursor: pointer;
-    background: #2a2a2a;
-    color: #e0e0e0;
-    border: 1px solid #444;
+    background: #1e1e1e;
+    color: #d0d0d0;
+    border: 1px solid #333;
     border-radius: 3px;
-    transition: background 0.15s;
+    transition: background 0.12s;
   }
-  button:disabled { opacity: 0.4; cursor: default; }
-  button:not(:disabled):hover { background: #3a3a3a; }
-  button.spinning { color: #7dd3fc; }
+  button:disabled { opacity: 0.35; cursor: default; }
+  button:not(:disabled):hover { background: #2a2a2a; }
+  button.spinning { color: #f97316; }
 </style>

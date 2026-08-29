@@ -4,23 +4,18 @@
  * State machine (happy path):
  *   CREATED → PREPARING → ACTIVE → STOPPING → CLEANING → EVALUATING → COMPLETED
  *
- * Terminal states reachable from any non-terminal state:
- *   FAILED        — unexpected error during a transition
- *   ABORTED       — explicit abort() call
- *   TIMED_OUT     — run exceeded its time budget (Phase 4 will wire the timer)
- *   TARGET_LOST   — SafetyController rejected the target before ACTIVE
- *   CLEANUP_FAILED — ResourceRegistry.cleanupAll() had ≥1 failure
+ * Terminal states:
+ *   FAILED / ABORTED / TIMED_OUT / TARGET_LOST / CLEANUP_FAILED
  *
- * Invariants enforced here:
- *  1. Only one run may be active at a time — startRun() rejects if a run
- *     is already in progress.
- *  2. Every state transition calls checkpoint() so the run survives SW
- *     suspension.
- *  3. Transitions are serialised by the async state machine — no concurrent
- *     calls to transition() are possible within a single activation.
- *  4. Phase 3 has no chaos injection, so ACTIVE immediately proceeds to
- *     STOPPING after the safety check passes.  Phase 4 will replace that
- *     with real injection logic.
+ * Phase 4 changes:
+ *  - PREPARING now calls buildChaosParams() for fetch_latency / fetch_failure runs.
+ *  - ACTIVE calls injectChaos() and holds the injection open for the configured
+ *    duration (params.durationMs, default 5 s). The _abortController can cut
+ *    this short via abortRun().
+ *  - STOPPING is now just a label — the actual teardown happens in CLEANING via
+ *    the ResourceRegistry, which calls REMOVE_CHAOS on the target tab.
+ *  - Sequence numbering is surfaced as nextSequence() so chaos-injector.ts can
+ *    assign correct monotonic numbers to CHAOS_INJECTED events.
  */
 
 import type { ExperimentDefinition } from '../../domain/experiment';
@@ -29,6 +24,7 @@ import type { ExperimentRun, ExperimentState } from '../../domain/run';
 import { checkpoint, getCurrentRun } from '../state';
 import { ResourceRegistry } from './resource-registry';
 import { verifyTarget } from './safety-controller';
+import { buildChaosParams, injectChaos } from './chaos-injector';
 import { createRunStateUpdateMessage } from '../../messaging/messages';
 
 // ---------------------------------------------------------------------------
@@ -36,66 +32,55 @@ import { createRunStateUpdateMessage } from '../../messaging/messages';
 // ---------------------------------------------------------------------------
 
 const TERMINAL_STATES: ReadonlySet<ExperimentState> = new Set([
-  'COMPLETED',
-  'FAILED',
-  'ABORTED',
-  'TIMED_OUT',
-  'CLEANUP_FAILED',
-  'TARGET_LOST',
+  'COMPLETED', 'FAILED', 'ABORTED', 'TIMED_OUT', 'CLEANUP_FAILED', 'TARGET_LOST',
 ]);
 
 function isTerminal(state: ExperimentState): boolean {
   return TERMINAL_STATES.has(state);
 }
 
-function now(): number {
-  return Date.now();
-}
+function now(): number { return Date.now(); }
 
-/**
- * Broadcast a RUN_STATE_UPDATE to any open popups.
- * Uses sendMessage with a fire-and-forget pattern — if the popup is closed
- * there is no receiver, which is expected and not an error.
- */
 function broadcastStateUpdate(run: ExperimentRun | null, previousState: ExperimentState | null): void {
   chrome.runtime.sendMessage(createRunStateUpdateMessage(run, previousState)).catch(() => {
-    // No listeners (popup closed) — this is normal, not an error.
+    // No popup open — expected and not an error.
   });
 }
 
 // ---------------------------------------------------------------------------
-// Module-level singleton registry — one per SW activation.
-// Replaced on each new run so stale resources from a previous run don't
-// leak into the next one.
+// Module-level singletons — one per SW activation, replaced each run.
 // ---------------------------------------------------------------------------
 let _registry = new ResourceRegistry();
 let _abortController: AbortController | null = null;
 
+// Per-run sequence counter — surfaced so chaos-injector can use it.
+const _sequenceCounters = new Map<string, number>();
+
+export function nextSequence(runId: string): number {
+  const current = _sequenceCounters.get(runId) ?? 0;
+  const next = current + 1;
+  _sequenceCounters.set(runId, next);
+  return next;
+}
+
 // ---------------------------------------------------------------------------
-// Transition helper — mutates the run, checkpoints, and broadcasts.
+// Transition helper
 // ---------------------------------------------------------------------------
+
 async function transition(
   run: ExperimentRun,
   newState: ExperimentState,
   extra?: Partial<ExperimentRun>
 ): Promise<ExperimentRun> {
   const previousState = run.state;
-  const updated: ExperimentRun = {
-    ...run,
-    ...extra,
-    state: newState,
-    updatedAt: now(),
-  };
+  const updated: ExperimentRun = { ...run, ...extra, state: newState, updatedAt: now() };
   await checkpoint(updated);
   broadcastStateUpdate(updated, previousState);
   console.log(`[HAVOC][coordinator] ${run.runId}: ${previousState} → ${newState}`);
   return updated;
 }
 
-async function transitionToFailed(
-  run: ExperimentRun,
-  err: unknown
-): Promise<ExperimentRun> {
+async function transitionToFailed(run: ExperimentRun, err: unknown): Promise<ExperimentRun> {
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[HAVOC][coordinator] ${run.runId}: FAILED —`, msg);
   return transition(run, 'FAILED');
@@ -107,16 +92,13 @@ async function transitionToFailed(
 
 /**
  * Create and drive a new ExperimentRun through its full lifecycle.
- *
  * Returns the final ExperimentRun (terminal state).
- * Throws only if called while another run is already active — all other
- * errors are absorbed into the run's terminal state.
+ * Throws only if called while another run is already active.
  */
 export async function startRun(
   definition: ExperimentDefinition,
   target: Target
 ): Promise<ExperimentRun> {
-  // Guard: only one active run at a time.
   const existing = getCurrentRun();
   if (existing !== null && !isTerminal(existing.state)) {
     throw new Error(
@@ -124,9 +106,9 @@ export async function startRun(
     );
   }
 
-  // Fresh registry and abort controller for this run.
   _registry = new ResourceRegistry();
   _abortController = new AbortController();
+  const signal = _abortController.signal;
 
   // --- CREATED ---
   let run: ExperimentRun = {
@@ -143,96 +125,89 @@ export async function startRun(
 
   try {
     // --- PREPARING ---
-    // In Phase 4+ this will register chaos injection resources.
-    // For Phase 3 we register a no-op placeholder so the registry code path
-    // is exercised end-to-end.
     run = await transition(run, 'PREPARING');
 
-    _registry.register({
-      id: 'phase3-placeholder',
-      scope: 'run-lifetime',
-      cleanup: async () => {
-        console.log('[HAVOC][coordinator] placeholder resource cleaned up');
-      },
-    });
+    // Build chaos params for supported experiment kinds.
+    const chaosParams = buildChaosParams(definition, run.runId);
+    if (chaosParams === null && (definition.kind === 'fetch_latency' || definition.kind === 'fetch_failure')) {
+      throw new Error(`buildChaosParams returned null for kind "${definition.kind}" — check definition.params`);
+    }
 
-    // Small yield so the PREPARING state is observable in the popup before
-    // we immediately proceed. Real preparation work will replace this.
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    // Brief yield so PREPARING is visible in the popup.
+    await delay(80, signal);
 
     // --- Safety check: PREPARING → ACTIVE ---
     const verification = await verifyTarget(run.target);
     if (!verification.ok) {
-      console.warn(
-        `[HAVOC][coordinator] ${run.runId}: target lost — ${verification.reason}: ${verification.detail}`
-      );
+      console.warn(`[HAVOC][coordinator] ${run.runId}: target lost — ${verification.reason}: ${verification.detail}`);
       run = await transition(run, 'TARGET_LOST');
-      await cleanup(run);
-      return run;
+      return await doCleanup(run);
     }
 
-    // --- ACTIVE ---
-    // Phase 4 will start chaos injection here. For now we immediately stop.
+    // --- ACTIVE — inject chaos if applicable ---
     run = await transition(run, 'ACTIVE');
 
-    // Yield so ACTIVE is observable, then stop immediately (no chaos yet).
-    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    if (chaosParams !== null) {
+      const handle = await injectChaos(run.target, chaosParams, _registry, nextSequence);
+      // Phase 7 will persist handle.chaosEvent to IndexedDB here.
+      console.log(`[HAVOC][coordinator] ${run.runId}: chaos active (injection ${handle.injectionId})`);
+    }
+
+    // Hold ACTIVE for the configured duration (or until aborted).
+    // Default: 5 s so there's time to observe effects. Configurable via params.durationMs.
+    const durationMs = typeof definition.params.durationMs === 'number'
+      ? definition.params.durationMs
+      : 5_000;
+    await delay(durationMs, signal);
 
     // --- STOPPING ---
     run = await transition(run, 'STOPPING');
 
   } catch (err) {
-    run = await transitionToFailed(run, err);
-    await cleanup(run);
-    return run;
+    if (isAbortError(err)) {
+      run = await transition(run, 'ABORTED');
+    } else {
+      run = await transitionToFailed(run, err);
+    }
+    return await doCleanup(run);
   }
 
   // --- CLEANING ---
-  run = await cleanup(run);
+  run = await doCleanup(run);
   if (isTerminal(run.state)) return run;
 
   // --- EVALUATING ---
   try {
     run = await transition(run, 'EVALUATING');
-    // Phase 5/6 will compute Signals and Findings here.
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    // Phase 5/6: Signal + Finding derivation goes here.
+    await delay(50);
   } catch (err) {
     return transitionToFailed(run, err);
   }
 
   // --- COMPLETED ---
   run = await transition(run, 'COMPLETED');
-  // Clear the checkpoint — run is done; pop the state back to null.
   await checkpoint(null);
   broadcastStateUpdate(null, 'COMPLETED');
   return run;
 }
 
 /**
- * Abort the currently active run. Safe to call from any state; idempotent
- * if the run is already terminal.
+ * Abort the currently active run.
+ * Safe to call from any state; idempotent if already terminal.
  */
 export async function abortRun(): Promise<void> {
   const run = getCurrentRun();
   if (run === null || isTerminal(run.state)) return;
-
-  _abortController?.abort();
-  let updated = await transition(run, 'ABORTED');
-  await cleanup(updated);
+  _abortController?.abort(new DOMException('Run aborted by user', 'AbortError'));
 }
 
 // ---------------------------------------------------------------------------
-// Internal cleanup helper
+// Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Drive the run through CLEANING, execute the resource registry, then
- * return the run in either CLEANUP_FAILED or the original terminal-bound
- * state (so the caller can continue to EVALUATING on success).
- */
-async function cleanup(run: ExperimentRun): Promise<ExperimentRun> {
+async function doCleanup(run: ExperimentRun): Promise<ExperimentRun> {
   let current = await transition(run, 'CLEANING');
-
   const result = await _registry.cleanupAll();
 
   if (result.failed.length > 0) {
@@ -247,4 +222,17 @@ async function cleanup(run: ExperimentRun): Promise<ExperimentRun> {
   }
 
   return current;
+}
+
+/** Delay that respects an AbortSignal. Throws AbortError if aborted. */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
 }

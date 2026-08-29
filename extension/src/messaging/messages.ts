@@ -11,12 +11,18 @@ export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 
 /**
  * Messages that travel over the page ↔ content-script bridge (postMessage).
+ *
+ * INJECT_CHAOS / REMOVE_CHAOS travel SW → content → page (reverse direction
+ * from observations). The content script relays them via window.postMessage;
+ * bridge.ts receives and applies them to the instrumentation layer.
  */
 export type BridgeMessageType =
   | 'BRIDGE_HELLO'
   | 'BRIDGE_READY'
   | 'BRIDGE_ERROR'
-  | 'REQUEST_OBSERVATION';
+  | 'REQUEST_OBSERVATION'
+  | 'INJECT_CHAOS'
+  | 'REMOVE_CHAOS';
 
 /** Messages that travel over the popup ↔ service-worker channel (chrome.runtime). */
 export type RuntimeMessageType =
@@ -29,26 +35,58 @@ export type RuntimeMessageType =
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
 // ---------------------------------------------------------------------------
-// Observation payload
+// Chaos command payload
 // ---------------------------------------------------------------------------
 
-export type ObservationOutcome = 'success' | 'transport_failure' | 'http_failure' | 'timeout';
-export type ObservationTransport = 'fetch' | 'xhr';
+/**
+ * Failure modes for fetch_failure experiments:
+ *   transport_error      — fetch() promise rejects (simulates DNS/network failure)
+ *   synthetic_http_error — fetch() resolves with a synthetic non-ok Response (e.g. 503)
+ *   synthetic_timeout    — fetch() hangs until an AbortSignal fires (simulates timeout)
+ *
+ * V1 scope note: chaos applies to ALL fetches on the instrumented page.
+ * Per-URL filtering is a future enhancement. This is intentional and explicit:
+ * the experiment targets the entire fetch surface of the page, not individual
+ * endpoints. A future 'urlPattern' field will narrow scope.
+ */
+export type FetchFailureMode =
+  | 'transport_error'
+  | 'synthetic_http_error'
+  | 'synthetic_timeout';
 
-export interface ObservationPayload {
-  observationId: string;
-  transport: ObservationTransport;
-  outcome: ObservationOutcome;
-  url: string;
-  method: string;
-  status: number;
-  startTime: number;
-  duration: number;
-  errorMessage?: string;
+export interface FetchLatencyChaosParams {
+  kind: 'fetch_latency';
+  /** Additional delay in milliseconds added to every fetch call. */
+  delayMs: number;
+  /** Stable ID for correlating CHAOS_INJECTED with downstream REQUEST_* events. */
+  injectionId: string;
+  /** The runId this injection belongs to. */
+  runId: string;
 }
 
+export interface FetchFailureChaosParams {
+  kind: 'fetch_failure';
+  mode: FetchFailureMode;
+  /**
+   * HTTP status code used when mode === 'synthetic_http_error'.
+   * Ignored for other modes. Defaults to 503 if omitted.
+   */
+  syntheticStatus?: number;
+  /**
+   * Timeout in ms for synthetic_timeout mode. After this delay the injected
+   * fetch will reject with an AbortError.
+   */
+  timeoutMs?: number;
+  /** Stable ID for correlating CHAOS_INJECTED with downstream REQUEST_* events. */
+  injectionId: string;
+  /** The runId this injection belongs to. */
+  runId: string;
+}
+
+export type ChaosParams = FetchLatencyChaosParams | FetchFailureChaosParams;
+
 // ---------------------------------------------------------------------------
-// Bridge message (postMessage-based, page ↔ content-script)
+// Bridge messages
 // ---------------------------------------------------------------------------
 
 export interface BridgeMessage {
@@ -74,8 +112,42 @@ export function createObservationMessage(obs: ObservationPayload): BridgeMessage
   return createBridgeMessage('REQUEST_OBSERVATION', obs as unknown as Record<string, unknown>);
 }
 
+/** SW → page (via content script relay): activate chaos. */
+export function createInjectChaosMessage(params: ChaosParams): BridgeMessage {
+  return createBridgeMessage('INJECT_CHAOS', params as unknown as Record<string, unknown>);
+}
+
+/** SW → page (via content script relay): deactivate chaos and restore fetch. */
+export function createRemoveChaosMessage(injectionId: string): BridgeMessage {
+  return createBridgeMessage('REMOVE_CHAOS', { injectionId });
+}
+
 // ---------------------------------------------------------------------------
-// Runtime messages (chrome.runtime.sendMessage-based, popup ↔ SW)
+// Observation payload
+// ---------------------------------------------------------------------------
+
+export type ObservationOutcome = 'success' | 'transport_failure' | 'http_failure' | 'timeout';
+export type ObservationTransport = 'fetch' | 'xhr';
+
+export interface ObservationPayload {
+  observationId: string;
+  transport: ObservationTransport;
+  outcome: ObservationOutcome;
+  url: string;
+  method: string;
+  status: number;
+  startTime: number;
+  duration: number;
+  errorMessage?: string;
+  /**
+   * Set when this observation was produced while chaos was active.
+   * Links back to the CHAOS_INJECTED event with this id.
+   */
+  injectionId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime messages (chrome.runtime — popup ↔ SW)
 // ---------------------------------------------------------------------------
 
 export interface RuntimeMessage {
@@ -83,8 +155,6 @@ export interface RuntimeMessage {
   version: typeof BRIDGE_PROTOCOL_VERSION;
   type: RuntimeMessageType;
 }
-
-// --- GET_CURRENT_RUN ---
 
 export interface GetCurrentRunMessage extends RuntimeMessage {
   type: 'GET_CURRENT_RUN';
@@ -105,26 +175,15 @@ export function createCurrentRunResponseMessage(
   return { namespace: HAVOC_NAMESPACE, version: BRIDGE_PROTOCOL_VERSION, type: 'CURRENT_RUN_RESPONSE', run };
 }
 
-// --- CREATE_RUN ---
-
-/**
- * Popup → SW: request to start a new experiment run.
- * The SW resolves the active tab automatically; the popup only needs to supply
- * the ExperimentDefinition. The Target is filled in by the SW from the sender's
- * tab context or the currently active tab.
- */
 export interface CreateRunMessage extends RuntimeMessage {
   type: 'CREATE_RUN';
   definition: ExperimentDefinition;
-  /** Optional: explicit target. If omitted the SW uses the currently active tab. */
   target?: Target;
 }
 
 export interface CreateRunResponseMessage extends RuntimeMessage {
   type: 'CREATE_RUN_RESPONSE';
-  /** The newly created run on success. */
   run?: ExperimentRun;
-  /** Human-readable error if the run could not be created. */
   error?: string;
 }
 
@@ -154,17 +213,9 @@ export function createCreateRunResponseMessage(
   };
 }
 
-// --- RUN_STATE_UPDATE (SW → popup push notification) ---
-
-/**
- * SW → popup: notifies the popup that the current run changed state.
- * Sent as a broadcast via chrome.runtime.sendMessage so the popup can
- * update its display without polling.
- */
 export interface RunStateUpdateMessage extends RuntimeMessage {
   type: 'RUN_STATE_UPDATE';
   run: ExperimentRun | null;
-  /** The previous state, for UI transition animations. */
   previousState: ExperimentState | null;
 }
 

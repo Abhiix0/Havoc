@@ -12,10 +12,12 @@ import {
   type CreateRunResponseMessage,
   type RunStateUpdateMessage,
   type RuntimeMessageType,
+  type ChaosParams,
+  type FetchFailureMode,
 } from './messages';
 
 // ---------------------------------------------------------------------------
-// Bridge message validator (postMessage / content-script channel)
+// Bridge message validator
 // ---------------------------------------------------------------------------
 
 const VALID_BRIDGE_TYPES: ReadonlySet<BridgeMessageType> = new Set([
@@ -23,6 +25,8 @@ const VALID_BRIDGE_TYPES: ReadonlySet<BridgeMessageType> = new Set([
   'BRIDGE_READY',
   'BRIDGE_ERROR',
   'REQUEST_OBSERVATION',
+  'INJECT_CHAOS',
+  'REMOVE_CHAOS',
 ]);
 
 export function isBridgeMessage(data: unknown): data is BridgeMessage {
@@ -39,10 +43,7 @@ export function isBridgeMessage(data: unknown): data is BridgeMessage {
 // ---------------------------------------------------------------------------
 
 const VALID_OUTCOMES: ReadonlySet<ObservationOutcome> = new Set([
-  'success',
-  'transport_failure',
-  'http_failure',
-  'timeout',
+  'success', 'transport_failure', 'http_failure', 'timeout',
 ]);
 
 const VALID_TRANSPORTS: ReadonlySet<ObservationTransport> = new Set(['fetch', 'xhr']);
@@ -59,6 +60,7 @@ export function isObservationPayload(data: unknown): data is ObservationPayload 
   if (typeof p.startTime !== 'number' || !isFinite(p.startTime)) return false;
   if (typeof p.duration !== 'number' || !isFinite(p.duration) || p.duration < 0) return false;
   if ('errorMessage' in p && typeof p.errorMessage !== 'string') return false;
+  if ('injectionId' in p && typeof p.injectionId !== 'string') return false;
   return true;
 }
 
@@ -68,6 +70,56 @@ export function isObservationMessage(
   if (!isBridgeMessage(data)) return false;
   if (data.type !== 'REQUEST_OBSERVATION') return false;
   return isObservationPayload(data.payload);
+}
+
+// ---------------------------------------------------------------------------
+// ChaosParams validator
+// ---------------------------------------------------------------------------
+
+const VALID_FAILURE_MODES: ReadonlySet<FetchFailureMode> = new Set([
+  'transport_error', 'synthetic_http_error', 'synthetic_timeout',
+]);
+
+export function isChaosParams(data: unknown): data is ChaosParams {
+  if (typeof data !== 'object' || data === null) return false;
+  const p = data as Record<string, unknown>;
+  if (typeof p.injectionId !== 'string' || p.injectionId.length === 0) return false;
+  if (typeof p.runId !== 'string' || p.runId.length === 0) return false;
+
+  if (p.kind === 'fetch_latency') {
+    return typeof p.delayMs === 'number' && p.delayMs >= 0 && isFinite(p.delayMs);
+  }
+  if (p.kind === 'fetch_failure') {
+    if (!VALID_FAILURE_MODES.has(p.mode as FetchFailureMode)) return false;
+    if ('syntheticStatus' in p && typeof p.syntheticStatus !== 'number') return false;
+    if ('timeoutMs' in p && typeof p.timeoutMs !== 'number') return false;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Guard for INJECT_CHAOS messages arriving at the page via window.postMessage.
+ * The page world is untrusted input so we validate the full ChaosParams payload.
+ */
+export function isChaosMessage(
+  data: unknown
+): data is BridgeMessage & { type: 'INJECT_CHAOS'; payload: ChaosParams } {
+  if (!isBridgeMessage(data)) return false;
+  if (data.type !== 'INJECT_CHAOS') return false;
+  return isChaosParams(data.payload);
+}
+
+/**
+ * Guard for REMOVE_CHAOS messages arriving at the page via window.postMessage.
+ */
+export function isRemoveChaosMessage(
+  data: unknown
+): data is BridgeMessage & { type: 'REMOVE_CHAOS'; payload: { injectionId: string } } {
+  if (!isBridgeMessage(data)) return false;
+  if (data.type !== 'REMOVE_CHAOS') return false;
+  const p = data.payload as Record<string, unknown> | undefined;
+  return typeof p?.injectionId === 'string' && p.injectionId.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +151,6 @@ export function isCurrentRunResponseMessage(data: unknown): data is CurrentRunRe
   return isRuntimeMessageBase(data) && (data as CurrentRunResponseMessage).type === 'CURRENT_RUN_RESPONSE';
 }
 
-/**
- * Validates an inbound CREATE_RUN message from the popup.
- * Checks the ExperimentDefinition has the minimum required fields so the
- * SW never passes a malformed definition to the RunCoordinator.
- */
 export function isCreateRunMessage(data: unknown): data is CreateRunMessage {
   if (!isRuntimeMessageBase(data)) return false;
   if ((data as CreateRunMessage).type !== 'CREATE_RUN') return false;
