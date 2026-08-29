@@ -1,0 +1,39 @@
+:root {
+  /* Core Color Tokens */
+  --bg-base: #0A0A0B;
+  --bg-surface: #16171A;
+  --bg-surface-2: #1E1F23;
+  --border: #2A2B30;
+  --text-primary: #F2F2F0;
+  --text-muted: #8A8B90;
+  --havoc-red: #E85C4A;
+  --recover-green: #4ADE80;
+  --warn-amber: #F5C451;
+  --info-blue: #5B8FD8;
+
+  /* Typography */
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', Consolas, monospace;
+
+  /* Type Scale */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-lg: 14px;
+  --text-xl: 16px;
+  --text-2xl: 20px;
+
+  /* Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Component Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+}
