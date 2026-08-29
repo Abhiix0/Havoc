@@ -9,24 +9,9 @@
  * data that must outlive SW restarts but need not survive a browser restart.
  */
 
-import type { ExperimentRun, ExperimentState } from '../domain/run';
+import type { ExperimentRun } from '../domain/run';
 
 const SESSION_KEY = 'havoc_current_run' as const;
-
-/**
- * States from which a run cannot be resumed after SW suspension.
- * The lifecycle machinery (registry, abort controller, timers) is lost
- * when the SW is killed — these states are irrecoverable without a full
- * restart, so we mark them terminal on rehydration rather than leaving
- * the popup stuck showing a zombie state.
- */
-const NON_RESUMABLE_STATES: ReadonlySet<ExperimentState> = new Set([
-  'PREPARING',
-  'ACTIVE',
-  'STOPPING',
-  'CLEANING',
-  'EVALUATING',
-]);
 
 // ---------------------------------------------------------------------------
 // In-memory cache — authoritative only while this SW activation is alive.
