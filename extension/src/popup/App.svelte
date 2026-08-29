@@ -12,6 +12,7 @@
   type Screen = 'home' | 'select' | 'configure' | 'active' | 'autopsy' | 'history';
   let currentScreen: Screen = 'home';
   let selectedKind: ExperimentKind = 'fetch_latency';
+  let inspectedRunId: string | null = null;
 
   onMount(() => {
     const cleanup = setupRunStore();
@@ -22,18 +23,27 @@
   $: if ($isRunActive) {
     if (currentScreen !== 'active') {
       currentScreen = 'active';
+      inspectedRunId = null;
     }
   }
 
   function handleNavigate(detail: any) {
     if (typeof detail === 'string') {
       currentScreen = detail as Screen;
+      if (detail !== 'autopsy') {
+        inspectedRunId = null;
+      }
     } else if (typeof detail === 'object' && detail !== null) {
       if (detail.screen) {
         currentScreen = detail.screen as Screen;
       }
       if (detail.kind) {
         selectedKind = detail.kind as ExperimentKind;
+      }
+      if ('runId' in detail) {
+        inspectedRunId = detail.runId ?? null;
+      } else if (detail.screen !== 'autopsy') {
+        inspectedRunId = null;
       }
     }
   }
@@ -55,7 +65,10 @@
   {:else if currentScreen === 'active'}
     <ActiveChaosScreen on:navigate={(e) => handleNavigate(e.detail)} />
   {:else if currentScreen === 'autopsy'}
-    <AutopsyScreen on:navigate={(e) => handleNavigate(e.detail)} />
+    <AutopsyScreen
+      historicalRunId={inspectedRunId}
+      on:navigate={(e) => handleNavigate(e.detail)}
+    />
   {:else if currentScreen === 'history'}
     <HistoryScreen on:navigate={(e) => handleNavigate(e.detail)} />
   {/if}

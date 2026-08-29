@@ -9,11 +9,25 @@
     events,
     loadRunDetails,
   } from '../stores/run';
+  import {
+    getRun,
+    getEventsByRunId,
+    getSignalsByRunId,
+    getRecoveryByRunId,
+    getFindingsByRunId,
+  } from '../../../storage/repository';
+  import type { ExperimentRun } from '../../../domain/run';
+  import type { Recovery } from '../../../domain/recovery';
+  import type { Finding } from '../../../domain/finding';
+  import type { Signal } from '../../../domain/signal';
+  import type { HavocEvent } from '../../../domain/event';
   import RecoveryBanner from '../components/RecoveryBanner.svelte';
   import FindingCard from '../components/FindingCard.svelte';
   import SignalCard from '../components/SignalCard.svelte';
   import EventRow from '../components/EventRow.svelte';
   import Button from '../components/Button.svelte';
+
+  export let historicalRunId: string | null = null;
 
   const dispatch = createEventDispatcher<{
     navigate: 'home' | 'history';
@@ -23,17 +37,44 @@
   let showRawEvidence = false;
   let rawEvidenceTab: 'signals' | 'events' = 'signals';
 
+  // Local state when historicalRunId is passed
+  let histRun: ExperimentRun | null = null;
+  let histRecovery: Recovery | undefined = undefined;
+  let histFindings: Finding[] = [];
+  let histSignals: Signal[] = [];
+  let histEvents: HavocEvent[] = [];
+
+  $: activeRun = historicalRunId ? histRun : $currentRun;
+  $: activeRecovery = historicalRunId ? histRecovery : $recovery;
+  $: activeFindings = historicalRunId ? histFindings : $findings;
+  $: activeSignals = historicalRunId ? histSignals : $signals;
+  $: activeEvents = historicalRunId ? histEvents : $events;
+
   onMount(async () => {
-    if ($currentRun) {
+    if (historicalRunId) {
+      const [r, rec, fnds, sigs, evts] = await Promise.all([
+        getRun(historicalRunId),
+        getRecoveryByRunId(historicalRunId),
+        getFindingsByRunId(historicalRunId),
+        getSignalsByRunId(historicalRunId),
+        getEventsByRunId(historicalRunId),
+      ]);
+      histRun = r ?? null;
+      histRecovery = rec;
+      histFindings = fnds;
+      histSignals = sigs;
+      histEvents = evts;
+    } else if ($currentRun) {
       await loadRunDetails($currentRun.runId);
     }
+
     // Sequenced reveal: findings appear 180ms after banner
     setTimeout(() => {
       showFindings = true;
     }, 180);
   });
 
-  function getInjectedSummary(run: typeof $currentRun): string {
+  function getInjectedSummary(run: ExperimentRun | null): string {
     if (!run?.definition) return 'Chaos injection complete';
     const def = run.definition;
     const p = def.params ?? {};
@@ -66,26 +107,26 @@
     <button
       type="button"
       class="back-link"
-      on:click={() => dispatch('navigate', 'home')}
+      on:click={() => dispatch('navigate', historicalRunId ? 'history' : 'home')}
     >
-      ← HOME
+      {historicalRunId ? '← HISTORY' : '← HOME'}
     </button>
     <div class="header-titles">
       <span class="autopsy-title">AUTOPSY REPORT</span>
-      <span class="autopsy-tag">{$currentRun?.state ?? 'COMPLETED'}</span>
+      <span class="autopsy-tag">{activeRun?.state ?? 'COMPLETED'}</span>
     </div>
   </header>
 
   <!-- Injected Experiment Header -->
   <div class="injected-banner">
     <span class="injected-label">INJECTED CHAOS:</span>
-    <span class="injected-val">{getInjectedSummary($currentRun)}</span>
+    <span class="injected-val">{getInjectedSummary(activeRun)}</span>
   </div>
 
   <!-- Evaluated Recovery Banner -->
   <div class="banner-section" in:fade={{ duration: 150 }}>
-    {#if $recovery}
-      <RecoveryBanner recovery={$recovery} />
+    {#if activeRecovery}
+      <RecoveryBanner recovery={activeRecovery} />
     {:else}
       <div class="empty-recovery">
         <span class="empty-text">Awaiting autopsy evaluation results...</span>
@@ -96,16 +137,16 @@
   <!-- Findings List or Calm Resilient Message -->
   {#if showFindings}
     <div class="findings-section" in:fade={{ duration: 200 }}>
-      {#if $findings.length === 0}
+      {#if activeFindings.length === 0}
         <div class="resilient-box" in:fly={{ y: 6, duration: 200 }}>
           <span class="resilient-icon">✔</span>
           <div class="resilient-content">
-            {#if $recovery?.outcome === 'RECOVERED'}
+            {#if activeRecovery?.outcome === 'RECOVERED'}
               <span class="resilient-title">RESILIENT</span>
               <p class="resilient-text">
                 Application recovered cleanly within the observation window. No user-visible faults detected.
               </p>
-            {:else if $recovery?.outcome === 'DEGRADED'}
+            {:else if activeRecovery?.outcome === 'DEGRADED'}
               <span class="resilient-title">GRACEFUL DEGRADATION</span>
               <p class="resilient-text">
                 Application maintained partial function without hard failure findings.
@@ -120,10 +161,10 @@
         </div>
       {:else}
         <div class="findings-header">
-          <span class="section-title">FINDINGS ({$findings.length})</span>
+          <span class="section-title">FINDINGS ({activeFindings.length})</span>
         </div>
         <div class="findings-list">
-          {#each $findings as fnd, i (fnd.id)}
+          {#each activeFindings as fnd, i (fnd.id)}
             <div in:fly={{ y: 8, duration: 200, delay: i * 60 }}>
               <FindingCard finding={fnd} />
             </div>
@@ -144,7 +185,7 @@
         <span class="chevron">{showRawEvidence ? '▼' : '▶'}</span>
         <span>RAW EVIDENCE & TELEMETRY</span>
       </span>
-      <span class="toggle-count">{$signals.length} SIG / {$events.length} EVT</span>
+      <span class="toggle-count">{activeSignals.length} SIG / {activeEvents.length} EVT</span>
     </button>
 
     {#if showRawEvidence}
@@ -157,7 +198,7 @@
             class:active={rawEvidenceTab === 'signals'}
             on:click={() => (rawEvidenceTab = 'signals')}
           >
-            SIGNALS ({$signals.length})
+            SIGNALS ({activeSignals.length})
           </button>
           <button
             type="button"
@@ -165,29 +206,29 @@
             class:active={rawEvidenceTab === 'events'}
             on:click={() => (rawEvidenceTab = 'events')}
           >
-            TIMELINE ({$events.length})
+            TIMELINE ({activeEvents.length})
           </button>
         </div>
 
         <!-- Evidence List -->
         <div class="evidence-list-wrap">
           {#if rawEvidenceTab === 'signals'}
-            {#if $signals.length === 0}
+            {#if activeSignals.length === 0}
               <div class="empty-sub">No failure signals detected.</div>
             {:else}
               <div class="signals-column">
-                {#each $signals as sig (sig.id)}
+                {#each activeSignals as sig (sig.id)}
                   <SignalCard signal={sig} />
                 {/each}
               </div>
             {/if}
           {:else}
-            {#if $events.length === 0}
+            {#if activeEvents.length === 0}
               <div class="empty-sub">No recorded telemetry events.</div>
             {:else}
               <div class="events-column">
-                {#each $events as evt (evt.id)}
-                  <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+                {#each activeEvents as evt (evt.id)}
+                  <EventRow event={evt} startTime={activeRun?.createdAt ?? 0} />
                 {/each}
               </div>
             {/if}
