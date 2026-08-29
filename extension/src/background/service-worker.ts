@@ -33,6 +33,11 @@ import type { HavocEvent } from '../domain/event';
 
 console.log('[HAVOC][SW] service worker booted');
 
+// Keep the SW alive long enough to handle the first message after install/update.
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('[HAVOC][SW] installed/updated:', details.reason);
+});
+
 // ---------------------------------------------------------------------------
 // Sequence counter — per runId, monotonically increasing within one SW
 // activation.  Key: runId, Value: last sequence number assigned.
