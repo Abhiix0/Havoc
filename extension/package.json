@@ -12,6 +12,7 @@
     "@crxjs/vite-plugin": "^2.0.0-beta.31",
     "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "@types/chrome": "^0.0.270",
+    "@types/node": "^26.4.0",
     "svelte": "^4.2.18",
     "svelte-preprocess": "^5.1.4",
     "typescript": "^5.5.4",
