@@ -84,6 +84,26 @@ export function buildChaosParams(
     } as ChaosParams;
   }
 
+  if (definition.kind === 'input_stress') {
+    const mode = (definition.params.mode as import('../../messaging/messages').InputStressMode | undefined) ?? 'all';
+    return {
+      kind: 'input_stress',
+      mode,
+      injectionId,
+      runId,
+    };
+  }
+
+  if (definition.kind === 'viewport_stress') {
+    const mode = (definition.params.mode as import('../../messaging/messages').ViewportStressMode | undefined) ?? 'mobile_narrow';
+    return {
+      kind: 'viewport_stress',
+      mode,
+      injectionId,
+      runId,
+    };
+  }
+
   return null;
 }
 

@@ -194,18 +194,191 @@ export function restoreFetch(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Input Stress (Passive Only) & Viewport Stress (CSS Layout Constraints)
+// ---------------------------------------------------------------------------
+
+interface RestorableInput {
+  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  originalValue: string;
+  originalChecked?: boolean | undefined;
+}
+
+const _restorableInputs = new Map<string, RestorableInput[]>();
+const _viewportStyles = new Map<string, HTMLStyleElement>();
+
+function getStressValue(mode: string | undefined, inputType: string, index: number): string {
+  switch (mode) {
+    case 'empty':
+      return '';
+    case 'whitespace':
+      return '   \t\n   ';
+    case 'unicode':
+      return '᚛᚛ᚉᚑᚅᚅᚐᚉᚈ᚜᚜ \u202E\u0000\uFEFF\u0007\u001B';
+    case 'emoji':
+      return '💥💣🧪🚀⚡🔥👾👻💀🤖🚨🚩⚠️';
+    case 'long_text':
+      return 'A'.repeat(5000) + '🔥' + 'B'.repeat(5000);
+    case 'numeric_extreme':
+      return inputType === 'number' || inputType === 'range' ? '999999999999' : '1e308';
+    case 'all':
+    default: {
+      const candidates = [
+        '᚛᚛ᚉᚑᚅᚅᚐᚉᚈ᚜᚜ \u202E\u0000\uFEFF',
+        '💥💣🧪🚀⚡🔥',
+        '   \t\n   ',
+        'A'.repeat(1200),
+        '9999999999',
+        '',
+      ];
+      return candidates[index % candidates.length] ?? '';
+    }
+  }
+}
+
+function applyInputStress(params: import('../messaging/messages').InputStressChaosParams): void {
+  const elements = Array.from(
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      'input:not([type="submit"]):not([type="button"]):not([type="image"]):not([type="hidden"]):not([type="password"]), textarea, select'
+    )
+  );
+
+  const saved: RestorableInput[] = [];
+
+  elements.forEach((el, index) => {
+    saved.push({
+      element: el,
+      originalValue: el.value,
+      originalChecked: el instanceof HTMLInputElement ? el.checked : undefined,
+    });
+
+    const inputType = (el instanceof HTMLInputElement ? el.type : el.tagName).toLowerCase();
+
+    if (inputType === 'checkbox' || inputType === 'radio') {
+      if (el instanceof HTMLInputElement) {
+        el.checked = !el.checked;
+      }
+    } else {
+      el.value = getStressValue(params.mode, inputType, index);
+    }
+
+    // PASSIVE ONLY: Dispatch standard input/change events for UI reaction,
+    // but NEVER invoke form.submit() or trigger clicks on submit buttons.
+    try {
+      el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+    } catch {
+      // safe ignore
+    }
+  });
+
+  _restorableInputs.set(params.injectionId, saved);
+}
+
+function restoreInputStress(injectionId: string): void {
+  const saved = _restorableInputs.get(injectionId);
+  if (!saved) return;
+
+  for (const item of saved) {
+    if (document.contains(item.element)) {
+      item.element.value = item.originalValue;
+      if (item.element instanceof HTMLInputElement && item.originalChecked !== undefined) {
+        item.element.checked = item.originalChecked;
+      }
+      try {
+        item.element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        item.element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+      } catch {
+        // safe ignore
+      }
+    }
+  }
+
+  _restorableInputs.delete(injectionId);
+}
+
+function applyViewportStress(params: import('../messaging/messages').ViewportStressChaosParams): void {
+  const styleEl = document.createElement('style');
+  styleEl.id = `havoc-viewport-stress-${params.injectionId}`;
+
+  let css = '';
+  switch (params.mode) {
+    case 'overflow_squeeze':
+      css = `
+        html, body {
+          max-width: 280px !important;
+          width: 280px !important;
+          overflow-x: auto !important;
+          box-shadow: 0 0 30px rgba(255, 0, 80, 0.4) !important;
+        }
+      `;
+      break;
+    case 'extreme_zoom':
+      css = `
+        html {
+          zoom: 2.0 !important;
+        }
+      `;
+      break;
+    case 'mobile_narrow':
+    default:
+      css = `
+        html, body {
+          max-width: 320px !important;
+          min-width: 320px !important;
+          width: 320px !important;
+          margin: 0 auto !important;
+          overflow-x: auto !important;
+          box-shadow: 0 0 30px rgba(0, 240, 255, 0.4) !important;
+        }
+      `;
+      break;
+  }
+
+  styleEl.textContent = css;
+  (document.head ?? document.documentElement).appendChild(styleEl);
+  _viewportStyles.set(params.injectionId, styleEl);
+
+  try {
+    window.dispatchEvent(new Event('resize'));
+  } catch {
+    // safe ignore
+  }
+}
+
+function restoreViewportStress(injectionId: string): void {
+  const styleEl = _viewportStyles.get(injectionId);
+  if (styleEl) {
+    styleEl.remove();
+    _viewportStyles.delete(injectionId);
+    try {
+      window.dispatchEvent(new Event('resize'));
+    } catch {
+      // safe ignore
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Chaos config management
 // ---------------------------------------------------------------------------
 
 export function activateChaos(params: ChaosParams): void {
   _chaosConfig = params;
-  emitChaosInjected(
-    params.injectionId,
-    params.runId,
-    params.kind === 'fetch_latency'
-      ? `fetch_latency +${params.delayMs}ms`
-      : `fetch_failure mode=${params.mode}`
-  );
+
+  let detail = '';
+  if (params.kind === 'fetch_latency') {
+    detail = `fetch_latency +${params.delayMs}ms`;
+  } else if (params.kind === 'fetch_failure') {
+    detail = `fetch_failure mode=${params.mode}`;
+  } else if (params.kind === 'input_stress') {
+    applyInputStress(params);
+    detail = `input_stress mode=${params.mode ?? 'all'}`;
+  } else if (params.kind === 'viewport_stress') {
+    applyViewportStress(params);
+    detail = `viewport_stress mode=${params.mode ?? 'mobile_narrow'}`;
+  }
+
+  emitChaosInjected(params.injectionId, params.runId, detail);
   console.log('[HAVOC][instrumentation] chaos activated:', params.kind, params.injectionId);
 }
 
@@ -214,6 +387,13 @@ export function deactivateChaos(injectionId: string): void {
     console.warn('[HAVOC][instrumentation] deactivateChaos: unknown injectionId', injectionId);
     return;
   }
+
+  if (_chaosConfig.kind === 'input_stress') {
+    restoreInputStress(injectionId);
+  } else if (_chaosConfig.kind === 'viewport_stress') {
+    restoreViewportStress(injectionId);
+  }
+
   _chaosConfig = null;
   console.log('[HAVOC][instrumentation] chaos deactivated:', injectionId);
 }

@@ -89,7 +89,36 @@ export interface FetchFailureChaosParams {
   runId: string;
 }
 
-export type ChaosParams = FetchLatencyChaosParams | FetchFailureChaosParams;
+export type InputStressMode =
+  | 'all'
+  | 'empty'
+  | 'whitespace'
+  | 'unicode'
+  | 'emoji'
+  | 'long_text'
+  | 'numeric_extreme';
+
+export interface InputStressChaosParams {
+  kind: 'input_stress';
+  mode?: InputStressMode;
+  injectionId: string;
+  runId: string;
+}
+
+export type ViewportStressMode = 'mobile_narrow' | 'overflow_squeeze' | 'extreme_zoom';
+
+export interface ViewportStressChaosParams {
+  kind: 'viewport_stress';
+  mode?: ViewportStressMode;
+  injectionId: string;
+  runId: string;
+}
+
+export type ChaosParams =
+  | FetchLatencyChaosParams
+  | FetchFailureChaosParams
+  | InputStressChaosParams
+  | ViewportStressChaosParams;
 
 // ---------------------------------------------------------------------------
 // Bridge messages

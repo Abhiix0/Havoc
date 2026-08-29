@@ -33,6 +33,7 @@ import { saveEvent, saveSignals } from '../storage/repository';
 import { rehydrate, getCurrentRun } from './state';
 import { startRun, abortRun, nextSequence } from './engine/run-coordinator';
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
+import { globalPerfMonitor } from './engine/performance-monitor';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -117,6 +118,8 @@ function domObservationToEvent(obs: DomObservationPayload, runId: string): Havoc
 // Emit a HavocEvent: log it, persist it, and feed it to the Signal Engine.
 // ---------------------------------------------------------------------------
 function emitEvent(event: HavocEvent): void {
+  const t0 = performance.now();
+
   if (event.type !== 'DOM_OBSERVATION') {
     // Log network/chaos events with detail; DOM events are high-volume so
     // only log if the kind is interesting.
@@ -147,6 +150,8 @@ function emitEvent(event: HavocEvent): void {
       console.error('[HAVOC][SW] Failed to persist derived signals:', err);
     });
   }
+
+  globalPerfMonitor.recordProcessing(performance.now() - t0);
 }
 
 // ---------------------------------------------------------------------------

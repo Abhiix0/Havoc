@@ -48,7 +48,7 @@
   // ---------------------------------------------------------------------------
   // Experiment Configuration
   // ---------------------------------------------------------------------------
-  type KindOption = 'fetch_latency' | 'fetch_failure';
+  type KindOption = 'fetch_latency' | 'fetch_failure' | 'input_stress' | 'viewport_stress';
   let selectedKind: KindOption = 'fetch_latency';
 
   // fetch_latency params
@@ -61,13 +61,27 @@
   let syntheticStatus = 503;
   let timeoutMs = 8000;
 
+  // input_stress params
+  let inputStressMode: import('../messaging/messages').InputStressMode = 'all';
+
+  // viewport_stress params
+  let viewportStressMode: import('../messaging/messages').ViewportStressMode = 'mobile_narrow';
+
   function buildDefinition(): ExperimentDefinition {
+    let name = '';
+    if (selectedKind === 'fetch_latency') {
+      name = `LATENCY +${delayMs}ms`;
+    } else if (selectedKind === 'fetch_failure') {
+      name = `FAILURE (${failureMode.toUpperCase()})`;
+    } else if (selectedKind === 'input_stress') {
+      name = `INPUT STRESS (${inputStressMode.toUpperCase()})`;
+    } else {
+      name = `VIEWPORT (${viewportStressMode.toUpperCase()})`;
+    }
+
     const base = {
       id: crypto.randomUUID(),
-      name:
-        selectedKind === 'fetch_latency'
-          ? `LATENCY +${delayMs}ms`
-          : `FAILURE (${failureMode.toUpperCase()})`,
+      name,
       description: 'Automated chaos experiment',
       durationMs,
     };
@@ -78,7 +92,7 @@
         kind: 'fetch_latency' as const,
         params: { delayMs, durationMs, recoveryWindowMs },
       };
-    } else {
+    } else if (selectedKind === 'fetch_failure') {
       return {
         ...base,
         kind: 'fetch_failure' as const,
@@ -88,6 +102,26 @@
           recoveryWindowMs,
           ...(failureMode === 'synthetic_http_error' && { syntheticStatus }),
           ...(failureMode === 'synthetic_timeout' && { timeoutMs }),
+        },
+      };
+    } else if (selectedKind === 'input_stress') {
+      return {
+        ...base,
+        kind: 'input_stress' as const,
+        params: {
+          mode: inputStressMode,
+          durationMs,
+          recoveryWindowMs,
+        },
+      };
+    } else {
+      return {
+        ...base,
+        kind: 'viewport_stress' as const,
+        params: {
+          mode: viewportStressMode,
+          durationMs,
+          recoveryWindowMs,
         },
       };
     }
@@ -571,6 +605,22 @@
                 >
                   FAILURE
                 </button>
+                <button
+                  class="btn-toggle"
+                  class:selected={selectedKind === 'input_stress'}
+                  disabled={isRunActive}
+                  on:click={() => (selectedKind = 'input_stress')}
+                >
+                  INPUT
+                </button>
+                <button
+                  class="btn-toggle"
+                  class:selected={selectedKind === 'viewport_stress'}
+                  disabled={isRunActive}
+                  on:click={() => (selectedKind = 'viewport_stress')}
+                >
+                  VIEWPORT
+                </button>
               </div>
             </div>
 
@@ -594,7 +644,7 @@
                   </div>
                 </div>
               </div>
-            {:else}
+            {:else if selectedKind === 'fetch_failure'}
               <!-- Failure Options -->
               <div class="form-row">
                 <span class="ctrl-label">FAILURE MODE:</span>
@@ -632,6 +682,30 @@
                   />
                 </div>
               {/if}
+            {:else if selectedKind === 'input_stress'}
+              <!-- Input Stress Options -->
+              <div class="form-row">
+                <span class="ctrl-label">INPUT STRESS MODE:</span>
+                <select bind:value={inputStressMode} disabled={isRunActive}>
+                  <option value="all">ALL PATTERNS (MIXED)</option>
+                  <option value="unicode">UNICODE & RTL OVERRIDE</option>
+                  <option value="emoji">EMOJI & SPECIAL SYMBOLS</option>
+                  <option value="long_text">LONG BOUNDARY TEXT (5K+)</option>
+                  <option value="numeric_extreme">NUMERIC EXTREMES</option>
+                  <option value="whitespace">WHITESPACE ONLY</option>
+                  <option value="empty">EMPTY STRINGS</option>
+                </select>
+              </div>
+            {:else if selectedKind === 'viewport_stress'}
+              <!-- Viewport Stress Options -->
+              <div class="form-row">
+                <span class="ctrl-label">LAYOUT CONSTRAINT:</span>
+                <select bind:value={viewportStressMode} disabled={isRunActive}>
+                  <option value="mobile_narrow">MOBILE NARROW (320px)</option>
+                  <option value="overflow_squeeze">OVERFLOW SQUEEZE (280px)</option>
+                  <option value="extreme_zoom">EXTREME ZOOM (200%)</option>
+                </select>
+              </div>
             {/if}
 
             <!-- Duration -->

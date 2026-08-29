@@ -48,6 +48,11 @@
 import type { HavocEvent } from '../../domain/event';
 import type { Signal } from '../../domain/signal';
 import type { DomObservationPayload } from '../../messaging/messages';
+import {
+  evaluateAdmission,
+  shouldCoalesceDomEvent,
+  clearBackpressureState,
+} from './backpressure';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +126,7 @@ function pruneBuffer(buf: RunBuffer, now: number): void {
 /** Clear a run's buffer when the run ends. */
 export function clearRunBuffer(runId: string): void {
   _buffers.delete(runId);
+  clearBackpressureState(runId);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,8 +331,19 @@ function deriveErrorState(
  * DOM_OBSERVATION events constructed from DomObservationMessage payloads.
  */
 export function processEvent(event: HavocEvent): Signal[] {
+  // Check if DOM observation should be coalesced
+  if (shouldCoalesceDomEvent(event)) {
+    return [];
+  }
+
   const buf = getBuffer(event.runId);
   const now = event.timestamp;
+
+  // Evaluate admission against backpressure cap
+  const admission = evaluateAdmission(event, buf.events);
+  if (!admission.admit) {
+    return [];
+  }
 
   // Add the event to the buffer first so derivers can see it.
   buf.events.push(event);

@@ -84,6 +84,14 @@ const VALID_FAILURE_MODES: ReadonlySet<FetchFailureMode> = new Set([
   'transport_error', 'synthetic_http_error', 'synthetic_timeout',
 ]);
 
+const VALID_INPUT_STRESS_MODES: ReadonlySet<string> = new Set([
+  'all', 'empty', 'whitespace', 'unicode', 'emoji', 'long_text', 'numeric_extreme',
+]);
+
+const VALID_VIEWPORT_STRESS_MODES: ReadonlySet<string> = new Set([
+  'mobile_narrow', 'overflow_squeeze', 'extreme_zoom',
+]);
+
 export function isChaosParams(data: unknown): data is ChaosParams {
   if (typeof data !== 'object' || data === null) return false;
   const p = data as Record<string, unknown>;
@@ -97,6 +105,14 @@ export function isChaosParams(data: unknown): data is ChaosParams {
     if (!VALID_FAILURE_MODES.has(p.mode as FetchFailureMode)) return false;
     if ('syntheticStatus' in p && typeof p.syntheticStatus !== 'number') return false;
     if ('timeoutMs' in p && typeof p.timeoutMs !== 'number') return false;
+    return true;
+  }
+  if (p.kind === 'input_stress') {
+    if ('mode' in p && typeof p.mode === 'string' && !VALID_INPUT_STRESS_MODES.has(p.mode)) return false;
+    return true;
+  }
+  if (p.kind === 'viewport_stress') {
+    if ('mode' in p && typeof p.mode === 'string' && !VALID_VIEWPORT_STRESS_MODES.has(p.mode)) return false;
     return true;
   }
   return false;
