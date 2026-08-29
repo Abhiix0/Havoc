@@ -1,52 +1,32 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import {
-    createGetCurrentRunMessage,
-    createCreateRunMessage,
-    createAbortRunMessage,
-    type FetchFailureMode,
-  } from '../messaging/messages';
-  import {
-    isCurrentRunResponseMessage,
-    isCreateRunResponseMessage,
-    isRunStateUpdateMessage,
-  } from '../messaging/validator';
-  import {
-    getAllRuns,
-    getEventsByRunId,
-    getSignalsByRunId,
-    getRecoveryByRunId,
-    getFindingsByRunId,
-  } from '../storage/repository';
-  import type { ExperimentRun, ExperimentState } from '../domain/run';
+  import { onMount } from 'svelte';
+  import type { FetchFailureMode } from '../messaging/messages';
   import type { ExperimentDefinition } from '../domain/experiment';
-  import type { HavocEvent } from '../domain/event';
-  import type { Signal } from '../domain/signal';
-  import type { Finding } from '../domain/finding';
-  import type { Recovery } from '../domain/recovery';
-  import type { Target } from '../domain/target';
+  import {
+    currentRun,
+    activeTab,
+    error,
+    starting,
+    aborting,
+    events,
+    signals,
+    recovery,
+    findings,
+    activeTabNav,
+    isRunActive,
+    canStart,
+    TERMINAL_STATES,
+    PIPELINE_STEPS,
+    getStepIndex,
+    formatRelativeTime,
+    formatConfidence,
+    setupRunStore,
+    handleStartRun as storeStartRun,
+    handleAbortRun,
+  } from './lib/stores/run';
 
   // ---------------------------------------------------------------------------
-  // State
-  // ---------------------------------------------------------------------------
-  let currentRun: ExperimentRun | null = null;
-  let activeTab: Target | null = null;
-  let loading = true;
-  let error: string | null = null;
-  let starting = false;
-  let aborting = false;
-
-  // Run history / inspected records
-  let events: HavocEvent[] = [];
-  let signals: Signal[] = [];
-  let recovery: Recovery | undefined = undefined;
-  let findings: Finding[] = [];
-
-  // Active view tab: 'timeline' | 'signals' | 'autopsy' | 'config'
-  let activeTabNav: 'timeline' | 'signals' | 'autopsy' | 'config' = 'timeline';
-
-  // ---------------------------------------------------------------------------
-  // Experiment Configuration
+  // Experiment Configuration (UI Form state)
   // ---------------------------------------------------------------------------
   type KindOption = 'fetch_latency' | 'fetch_failure' | 'input_stress' | 'viewport_stress';
   let selectedKind: KindOption = 'fetch_latency';
@@ -127,196 +107,13 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle & Polling
-  // ---------------------------------------------------------------------------
-  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  function handleStartRun() {
+    storeStartRun(buildDefinition());
+  }
 
-  onMount(async () => {
-    await resolveActiveTab();
-    await syncState();
-    chrome.runtime.onMessage.addListener(handleRuntimeMessage);
-
-    // Poll while run is active to stream events and signals in real time
-    pollInterval = setInterval(async () => {
-      if (isRunActive && currentRun) {
-        await loadRunDetails(currentRun.runId);
-      }
-    }, 600);
+  onMount(() => {
+    return setupRunStore();
   });
-
-  onDestroy(() => {
-    if (pollInterval) clearInterval(pollInterval);
-    chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
-  });
-
-  async function resolveActiveTab(): Promise<void> {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.id !== undefined && tab.url) {
-        let origin = '';
-        try {
-          origin = new URL(tab.url).origin;
-        } catch {
-          origin = tab.url;
-        }
-        activeTab = { tabId: tab.id, origin, url: tab.url, frameId: 0 };
-      }
-    } catch (e) {
-      console.warn('[HAVOC][popup] could not resolve active tab', e);
-    }
-  }
-
-  async function syncState(): Promise<void> {
-    loading = true;
-    error = null;
-    try {
-      // 1. Query SW for active in-memory run
-      const response: unknown = await chrome.runtime.sendMessage(createGetCurrentRunMessage());
-      if (isCurrentRunResponseMessage(response) && response.run) {
-        currentRun = response.run;
-      } else {
-        // 2. If no active run in SW, read the most recent run from IndexedDB
-        const runs = await getAllRuns();
-        if (runs.length > 0) {
-          runs.sort((a, b) => b.createdAt - a.createdAt);
-          currentRun = runs[0];
-        } else {
-          currentRun = null;
-        }
-      }
-
-      // 3. Load associated details if we have a run
-      if (currentRun) {
-        await loadRunDetails(currentRun.runId);
-      }
-    } catch (e) {
-      error = 'Could not sync state with background worker';
-      console.error('[HAVOC][popup] syncState error', e);
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function loadRunDetails(runId: string): Promise<void> {
-    try {
-      const [evts, sigs, rec, fnds] = await Promise.all([
-        getEventsByRunId(runId),
-        getSignalsByRunId(runId),
-        getRecoveryByRunId(runId),
-        getFindingsByRunId(runId),
-      ]);
-      events = evts;
-      signals = sigs;
-      recovery = rec;
-      findings = fnds;
-    } catch (e) {
-      console.error('[HAVOC][popup] loadRunDetails error', e);
-    }
-  }
-
-  function handleRuntimeMessage(message: unknown): void {
-    if (isRunStateUpdateMessage(message)) {
-      if (message.run) {
-        currentRun = message.run;
-        loadRunDetails(message.run.runId);
-      } else if (currentRun) {
-        // State completed / reset
-        starting = false;
-        aborting = false;
-        loadRunDetails(currentRun.runId);
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------------------
-  async function handleStartRun(): Promise<void> {
-    if (starting || isRunActive) return;
-    starting = true;
-    error = null;
-    try {
-      const def = buildDefinition();
-      const response: unknown = await chrome.runtime.sendMessage(
-        createCreateRunMessage(def, activeTab ?? undefined)
-      );
-
-      if (isCreateRunResponseMessage(response)) {
-        if (response.error) {
-          error = response.error;
-          starting = false;
-        } else if (response.run) {
-          currentRun = response.run;
-          events = [];
-          signals = [];
-          recovery = undefined;
-          findings = [];
-          activeTabNav = 'timeline';
-        }
-      } else {
-        error = 'Invalid response received from service worker';
-        starting = false;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to launch experiment';
-      starting = false;
-    }
-  }
-
-  async function handleAbortRun(): Promise<void> {
-    if (!isRunActive || aborting) return;
-    aborting = true;
-    try {
-      await chrome.runtime.sendMessage(createAbortRunMessage());
-    } catch (e) {
-      console.error('[HAVOC][popup] abort error', e);
-    } finally {
-      setTimeout(() => {
-        aborting = false;
-      }, 1000);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Computed helpers
-  // ---------------------------------------------------------------------------
-  const TERMINAL_STATES = new Set<ExperimentState>([
-    'COMPLETED',
-    'FAILED',
-    'ABORTED',
-    'TIMED_OUT',
-    'CLEANUP_FAILED',
-    'TARGET_LOST',
-  ]);
-
-  const PIPELINE_STEPS: ExperimentState[] = [
-    'CREATED',
-    'PREPARING',
-    'ACTIVE',
-    'STOPPING',
-    'CLEANING',
-    'EVALUATING',
-    'COMPLETED',
-  ];
-
-  $: isRunActive = currentRun !== null && !TERMINAL_STATES.has(currentRun.state);
-  $: canStart = !loading && !isRunActive && !starting;
-
-  function getStepIndex(state: ExperimentState): number {
-    const idx = PIPELINE_STEPS.indexOf(state);
-    return idx >= 0 ? idx : -1;
-  }
-
-  function formatRelativeTime(timestamp: number, baseTimestamp: number): string {
-    const diff = (timestamp - baseTimestamp) / 1000;
-    const sign = diff >= 0 ? '+' : '-';
-    return `${sign}${Math.abs(diff).toFixed(2)}s`;
-  }
-
-  function formatConfidence(conf: number): string {
-    return `${Math.round(conf * 100)}%`;
-  }
 </script>
 
 <div class="lab-frame">
@@ -330,12 +127,12 @@
           <span class="brand-tag">[v1.0 LAB-DECK]</span>
         </div>
         <div class="status-indicator">
-          {#if isRunActive}
-            <span class="badge badge-active blink">● ACTIVE [{currentRun?.state}]</span>
-          {:else if currentRun?.state === 'COMPLETED'}
+          {#if $isRunActive}
+            <span class="badge badge-active blink">● ACTIVE [{$currentRun?.state}]</span>
+          {:else if $currentRun?.state === 'COMPLETED'}
             <span class="badge badge-completed">■ COMPLETED</span>
-          {:else if currentRun && TERMINAL_STATES.has(currentRun.state)}
-            <span class="badge badge-terminal">✖ {currentRun.state}</span>
+          {:else if $currentRun && TERMINAL_STATES.has($currentRun.state)}
+            <span class="badge badge-terminal">✖ {$currentRun.state}</span>
           {:else}
             <span class="badge badge-standby">□ STANDBY</span>
           {/if}
@@ -344,34 +141,34 @@
 
       <div class="target-strip">
         <span class="target-label">[TARGET]</span>
-        {#if activeTab}
-          <span class="target-chip tab-id">TAB #{activeTab.tabId}</span>
-          <span class="target-origin" title={activeTab.url}>{activeTab.origin}</span>
+        {#if $activeTab}
+          <span class="target-chip tab-id">TAB #{$activeTab.tabId}</span>
+          <span class="target-origin" title={$activeTab.url}>{$activeTab.origin}</span>
         {:else}
           <span class="target-chip no-target">NO ACTIVE TARGET</span>
         {/if}
       </div>
     </header>
 
-    {#if error}
+    {#if $error}
       <div class="error-banner">
         <span class="error-icon">!</span>
-        <span class="error-text">{error}</span>
+        <span class="error-text">{$error}</span>
       </div>
     {/if}
 
-    {#if currentRun}
+    {#if $currentRun}
       <section class="pipeline-section">
         <div class="pipeline-header">
           <span class="sec-label">STATE MACHINE TRACKER</span>
-          <span class="run-id-tag">RUN #{currentRun.runId.slice(0, 8)}</span>
+          <span class="run-id-tag">RUN #{$currentRun.runId.slice(0, 8)}</span>
         </div>
         <div class="pipeline-bar">
           {#each PIPELINE_STEPS as step, i}
-            {@const currentIdx = getStepIndex(currentRun.state)}
-            {@const isCurrent = currentRun.state === step}
-            {@const isPast = currentIdx > i || currentRun.state === 'COMPLETED'}
-            {@const isFailed = TERMINAL_STATES.has(currentRun.state) && currentRun.state !== 'COMPLETED' && currentRun.state === step}
+            {@const currentIdx = getStepIndex($currentRun.state)}
+            {@const isCurrent = $currentRun.state === step}
+            {@const isPast = currentIdx > i || $currentRun.state === 'COMPLETED'}
+            {@const isFailed = TERMINAL_STATES.has($currentRun.state) && $currentRun.state !== 'COMPLETED' && $currentRun.state === step}
             <div class="pipe-node" class:current={isCurrent} class:past={isPast} class:failed={isFailed} title={step}>
               <span class="node-glyph">
                 {#if isFailed}<span class="glyph-pixel glyph-failed">✖</span>
@@ -388,24 +185,24 @@
     {/if}
 
     <nav class="console-nav">
-      <button class="nav-tab" class:active={activeTabNav === 'timeline'} on:click={() => (activeTabNav = 'timeline')}>
-        [01] TIMELINE ({events.length})
+      <button class="nav-tab" class:active={$activeTabNav === 'timeline'} on:click={() => ($activeTabNav = 'timeline')}>
+        [01] TIMELINE ({$events.length})
       </button>
-      <button class="nav-tab" class:active={activeTabNav === 'signals'} on:click={() => (activeTabNav = 'signals')}>
-        [02] SIGNALS ({signals.length})
+      <button class="nav-tab" class:active={$activeTabNav === 'signals'} on:click={() => ($activeTabNav = 'signals')}>
+        [02] SIGNALS ({$signals.length})
       </button>
-      <button class="nav-tab" class:active={activeTabNav === 'autopsy'} on:click={() => (activeTabNav = 'autopsy')}>
-        [03] AUTOPSY {recovery ? `[${recovery.outcome}]` : ''}
+      <button class="nav-tab" class:active={$activeTabNav === 'autopsy'} on:click={() => ($activeTabNav = 'autopsy')}>
+        [03] AUTOPSY {$recovery ? `[${$recovery.outcome}]` : ''}
       </button>
-      <button class="nav-tab" class:active={activeTabNav === 'config'} on:click={() => (activeTabNav = 'config')}>
+      <button class="nav-tab" class:active={$activeTabNav === 'config'} on:click={() => ($activeTabNav = 'config')}>
         [04] CONTROLS
       </button>
     </nav>
 
     <div class="viewport">
-      {#if activeTabNav === 'timeline'}
+      {#if $activeTabNav === 'timeline'}
         <div class="timeline-view">
-          {#if events.length === 0}
+          {#if $events.length === 0}
             <div class="empty-state">
               <div class="pixel-radar"><span class="radar-ring" /><span class="radar-sweep" /><span class="radar-blip" /></div>
               <span class="empty-prompt">&gt; Awaiting observation telemetry...</span>
@@ -413,11 +210,11 @@
             </div>
           {:else}
             <div class="event-list">
-              {#each events as evt}
+              {#each $events as evt}
                 <div class="event-row type-{evt.type.toLowerCase()}">
                   <div class="evt-meta">
                     <span class="evt-seq">#{String(evt.sequence).padStart(2, '0')}</span>
-                    <span class="evt-time">{currentRun ? formatRelativeTime(evt.timestamp, currentRun.createdAt) : '+0.00s'}</span>
+                    <span class="evt-time">{$currentRun ? formatRelativeTime(evt.timestamp, $currentRun.createdAt) : '+0.00s'}</span>
                     <span class="evt-badge badge-{evt.type.toLowerCase()}">{evt.type}</span>
                   </div>
                   <div class="evt-details">
@@ -440,9 +237,9 @@
             </div>
           {/if}
         </div>
-      {:else if activeTabNav === 'signals'}
+      {:else if $activeTabNav === 'signals'}
         <div class="signals-view">
-          {#if signals.length === 0}
+          {#if $signals.length === 0}
             <div class="empty-state">
               <div class="pixel-radar"><span class="radar-ring" /><span class="radar-sweep" /><span class="radar-blip" /></div>
               <span class="empty-prompt">&gt; No derived signals generated.</span>
@@ -450,7 +247,7 @@
             </div>
           {:else}
             <div class="signals-list">
-              {#each signals as sig}
+              {#each $signals as sig}
                 <div class="signal-card type-{sig.type.toLowerCase()}">
                   <div class="sig-header">
                     <span class="sig-type">{sig.type}</span>
@@ -469,9 +266,9 @@
             </div>
           {/if}
         </div>
-      {:else if activeTabNav === 'autopsy'}
+      {:else if $activeTabNav === 'autopsy'}
         <div class="autopsy-view">
-          {#if !recovery}
+          {#if !$recovery}
             <div class="empty-state">
               <div class="pixel-radar"><span class="radar-ring" /><span class="radar-sweep" /><span class="radar-blip" /></div>
               <span class="empty-prompt">&gt; Recovery autopsy pending.</span>
@@ -479,26 +276,26 @@
             </div>
           {:else}
             <div class="autopsy-report">
-              <div class="outcome-banner outcome-{recovery.outcome.toLowerCase()}">
+              <div class="outcome-banner outcome-{$recovery.outcome.toLowerCase()}">
                 <div class="outcome-title">
                   <span class="outcome-tag">[RECOVERY OUTCOME]</span>
-                  <span class="outcome-val">{recovery.outcome}</span>
+                  <span class="outcome-val">{$recovery.outcome}</span>
                 </div>
                 <div class="outcome-window">
-                  <span>WINDOW: {((recovery.windowEnd - recovery.windowStart) / 1000).toFixed(1)}s</span>
-                  <span>EVAL: {new Date(recovery.evaluatedAt).toLocaleTimeString()}</span>
+                  <span>WINDOW: {(($recovery.windowEnd - $recovery.windowStart) / 1000).toFixed(1)}s</span>
+                  <span>EVAL: {new Date($recovery.evaluatedAt).toLocaleTimeString()}</span>
                 </div>
               </div>
-              {#if findings.length === 0}
+              {#if $findings.length === 0}
                 <div class="no-finding-box">
                   <span class="nf-icon">■</span>
                   <span class="nf-text">
-                    {#if recovery.outcome === 'RECOVERED'}RESILIENT: Application retried and recovered successfully.
+                    {#if $recovery.outcome === 'RECOVERED'}RESILIENT: Application retried and recovered successfully.
                     {:else}INCONCLUSIVE: Insufficient observable evidence to conclude failure.{/if}
                   </span>
                 </div>
               {:else}
-                {#each findings as fnd}
+                {#each $findings as fnd}
                   <div class="finding-card severity-{fnd.severity.toLowerCase()}">
                     <div class="finding-header">
                       <span class="sev-badge sev-{fnd.severity.toLowerCase()}">[{fnd.severity} SEVERITY]</span>
@@ -515,17 +312,17 @@
             </div>
           {/if}
         </div>
-      {:else if activeTabNav === 'config'}
+      {:else if $activeTabNav === 'config'}
         <div class="config-view">
           <fieldset class="control-box">
             <legend class="ctrl-legend">[CHAOS INJECTION PARAMETERS]</legend>
             <div class="form-row">
               <span class="ctrl-label">EXPERIMENT KIND:</span>
               <div class="btn-group">
-                <button class="btn-toggle" class:selected={selectedKind === 'fetch_latency'} disabled={isRunActive} on:click={() => (selectedKind = 'fetch_latency')}>LATENCY</button>
-                <button class="btn-toggle" class:selected={selectedKind === 'fetch_failure'} disabled={isRunActive} on:click={() => (selectedKind = 'fetch_failure')}>FAILURE</button>
-                <button class="btn-toggle" class:selected={selectedKind === 'input_stress'} disabled={isRunActive} on:click={() => (selectedKind = 'input_stress')}>INPUT</button>
-                <button class="btn-toggle" class:selected={selectedKind === 'viewport_stress'} disabled={isRunActive} on:click={() => (selectedKind = 'viewport_stress')}>VIEWPORT</button>
+                <button class="btn-toggle" class:selected={selectedKind === 'fetch_latency'} disabled={$isRunActive} on:click={() => (selectedKind = 'fetch_latency')}>LATENCY</button>
+                <button class="btn-toggle" class:selected={selectedKind === 'fetch_failure'} disabled={$isRunActive} on:click={() => (selectedKind = 'fetch_failure')}>FAILURE</button>
+                <button class="btn-toggle" class:selected={selectedKind === 'input_stress'} disabled={$isRunActive} on:click={() => (selectedKind = 'input_stress')}>INPUT</button>
+                <button class="btn-toggle" class:selected={selectedKind === 'viewport_stress'} disabled={$isRunActive} on:click={() => (selectedKind = 'viewport_stress')}>VIEWPORT</button>
               </div>
             </div>
 
@@ -533,18 +330,18 @@
               <div class="form-row">
                 <span class="ctrl-label">DELAY (ms):</span>
                 <div class="input-with-presets">
-                  <input type="number" min="100" max="10000" step="100" bind:value={delayMs} disabled={isRunActive} />
+                  <input type="number" min="100" max="10000" step="100" bind:value={delayMs} disabled={$isRunActive} />
                   <div class="mini-presets">
-                    <button class="btn-preset" on:click={() => (delayMs = 400)} disabled={isRunActive}>400ms</button>
-                    <button class="btn-preset" on:click={() => (delayMs = 800)} disabled={isRunActive}>800ms</button>
-                    <button class="btn-preset" on:click={() => (delayMs = 2000)} disabled={isRunActive}>2s</button>
+                    <button class="btn-preset" on:click={() => (delayMs = 400)} disabled={$isRunActive}>400ms</button>
+                    <button class="btn-preset" on:click={() => (delayMs = 800)} disabled={$isRunActive}>800ms</button>
+                    <button class="btn-preset" on:click={() => (delayMs = 2000)} disabled={$isRunActive}>2s</button>
                   </div>
                 </div>
               </div>
             {:else if selectedKind === 'fetch_failure'}
               <div class="form-row">
                 <span class="ctrl-label">FAILURE MODE:</span>
-                <select bind:value={failureMode} disabled={isRunActive}>
+                <select bind:value={failureMode} disabled={$isRunActive}>
                   <option value="transport_error">TRANSPORT (NETWORK FAIL)</option>
                   <option value="synthetic_http_error">SYNTHETIC HTTP ERROR</option>
                   <option value="synthetic_timeout">SYNTHETIC TIMEOUT</option>
@@ -553,19 +350,19 @@
               {#if failureMode === 'synthetic_http_error'}
                 <div class="form-row">
                   <span class="ctrl-label">HTTP STATUS:</span>
-                  <input type="number" min="400" max="599" step="1" bind:value={syntheticStatus} disabled={isRunActive} />
+                  <input type="number" min="400" max="599" step="1" bind:value={syntheticStatus} disabled={$isRunActive} />
                 </div>
               {/if}
               {#if failureMode === 'synthetic_timeout'}
                 <div class="form-row">
                   <span class="ctrl-label">TIMEOUT (ms):</span>
-                  <input type="number" min="1000" max="30000" step="1000" bind:value={timeoutMs} disabled={isRunActive} />
+                  <input type="number" min="1000" max="30000" step="1000" bind:value={timeoutMs} disabled={$isRunActive} />
                 </div>
               {/if}
             {:else if selectedKind === 'input_stress'}
               <div class="form-row">
                 <span class="ctrl-label">INPUT STRESS MODE:</span>
-                <select bind:value={inputStressMode} disabled={isRunActive}>
+                <select bind:value={inputStressMode} disabled={$isRunActive}>
                   <option value="all">ALL PATTERNS (MIXED)</option>
                   <option value="unicode">UNICODE & RTL OVERRIDE</option>
                   <option value="emoji">EMOJI & SPECIAL SYMBOLS</option>
@@ -578,7 +375,7 @@
             {:else if selectedKind === 'viewport_stress'}
               <div class="form-row">
                 <span class="ctrl-label">LAYOUT CONSTRAINT:</span>
-                <select bind:value={viewportStressMode} disabled={isRunActive}>
+                <select bind:value={viewportStressMode} disabled={$isRunActive}>
                   <option value="mobile_narrow">MOBILE NARROW (320px)</option>
                   <option value="overflow_squeeze">OVERFLOW SQUEEZE (280px)</option>
                   <option value="extreme_zoom">EXTREME ZOOM (200%)</option>
@@ -588,11 +385,11 @@
 
             <div class="form-row">
               <span class="ctrl-label">HOLD DURATION (ms):</span>
-              <input type="number" min="1000" max="30000" step="1000" bind:value={durationMs} disabled={isRunActive} />
+              <input type="number" min="1000" max="30000" step="1000" bind:value={durationMs} disabled={$isRunActive} />
             </div>
             <div class="form-row">
               <span class="ctrl-label">RECOVERY WINDOW (ms):</span>
-              <input type="number" min="2000" max="30000" step="1000" bind:value={recoveryWindowMs} disabled={isRunActive} />
+              <input type="number" min="2000" max="30000" step="1000" bind:value={recoveryWindowMs} disabled={$isRunActive} />
             </div>
           </fieldset>
         </div>
@@ -600,13 +397,13 @@
     </div>
 
     <footer class="action-footer">
-      {#if isRunActive}
-        <button class="btn-action btn-abort" on:click={handleAbortRun} disabled={aborting}>
-          <span class="btn-icon">■</span>{aborting ? 'ABORTING...' : 'ABORT EXPERIMENT'}
+      {#if $isRunActive}
+        <button class="btn-action btn-abort" on:click={handleAbortRun} disabled={$aborting}>
+          <span class="btn-icon">■</span>{$aborting ? 'ABORTING...' : 'ABORT EXPERIMENT'}
         </button>
       {:else}
-        <button class="btn-action btn-start" on:click={handleStartRun} disabled={!canStart}>
-          <span class="btn-icon">▶</span>{starting ? 'ARMING CHAOS...' : 'INITIATE HAVOC'}
+        <button class="btn-action btn-start" on:click={handleStartRun} disabled={!$canStart}>
+          <span class="btn-icon">▶</span>{$starting ? 'ARMING CHAOS...' : 'INITIATE HAVOC'}
         </button>
       {/if}
     </footer>
