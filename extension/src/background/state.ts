@@ -9,9 +9,24 @@
  * data that must outlive SW restarts but need not survive a browser restart.
  */
 
-import type { ExperimentRun } from '../domain/run';
+import type { ExperimentRun, ExperimentState } from '../domain/run';
 
 const SESSION_KEY = 'havoc_current_run' as const;
+
+/**
+ * States from which a run cannot be resumed after SW suspension.
+ * The lifecycle machinery (registry, abort controller, timers) is lost
+ * when the SW is killed — these states are irrecoverable without a full
+ * restart, so we mark them terminal on rehydration rather than leaving
+ * the popup stuck showing a zombie state.
+ */
+const NON_RESUMABLE_STATES: ReadonlySet<ExperimentState> = new Set([
+  'PREPARING',
+  'ACTIVE',
+  'STOPPING',
+  'CLEANING',
+  'EVALUATING',
+]);
 
 // ---------------------------------------------------------------------------
 // In-memory cache — authoritative only while this SW activation is alive.
@@ -31,7 +46,24 @@ let _currentRun: ExperimentRun | null = null;
  */
 export async function rehydrate(): Promise<void> {
   const result = await chrome.storage.session.get(SESSION_KEY);
-  const stored = result[SESSION_KEY] as ExperimentRun | null | undefined;
+  let stored = result[SESSION_KEY] as ExperimentRun | null | undefined;
+
+  if (stored !== null && stored !== undefined && NON_RESUMABLE_STATES.has(stored.state)) {
+    // Run was interrupted mid-lifecycle by SW suspension. The in-memory
+    // registry, abort controller, and timers are all gone — we cannot
+    // resume it. Mark it FAILED and clear the checkpoint so the next
+    // startRun() doesn't see a zombie blocking run.
+    console.warn(
+      `[HAVOC][state] discarding non-resumable run ${stored.runId} (was ${stored.state}) — marking FAILED`
+    );
+    stored = { ...stored, state: 'FAILED', updatedAt: Date.now() };
+    await chrome.storage.session.remove(SESSION_KEY);
+    // Keep _currentRun as null — the failed run is gone.
+    _currentRun = null;
+    console.log('[HAVOC][state] rehydrated: stale run discarded');
+    return;
+  }
+
   _currentRun = stored ?? null;
   console.log(
     '[HAVOC][state] rehydrated from session storage:',

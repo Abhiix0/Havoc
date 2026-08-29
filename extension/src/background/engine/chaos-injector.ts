@@ -23,6 +23,21 @@ import type { HavocEvent } from '../../domain/event';
 import { createInjectChaosMessage, createRemoveChaosMessage, type ChaosParams } from '../../messaging/messages';
 import type { ResourceRegistry } from './resource-registry';
 
+/**
+ * Thrown when the target tab doesn't have HAVOC's content script running.
+ * The coordinator catches this and transitions to TARGET_LOST instead of FAILED,
+ * because the tab is unreachable for chaos — not because the experiment itself
+ * is broken.
+ */
+export class ContentScriptUnavailableError extends Error {
+  constructor(tabId: number, detail: string) {
+    super(`Content script not reachable in tab ${tabId}: ${detail}`);
+    this.name = 'ContentScriptUnavailableError';
+  }
+}
+
+const CONTENT_SCRIPT_ABSENT_PATTERN = /receiving end does not exist/i;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -94,9 +109,15 @@ export async function injectChaos(
     await chrome.tabs.sendMessage(target.tabId, createInjectChaosMessage(params));
     console.log(`[HAVOC][chaos] injected ${params.kind} into tab ${target.tabId} (injection: ${params.injectionId})`);
   } catch (err) {
-    throw new Error(
-      `Failed to send INJECT_CHAOS to tab ${target.tabId}: ${err instanceof Error ? err.message : String(err)}`
-    );
+    const detail = err instanceof Error ? err.message : String(err);
+    // "Receiving end does not exist" means the content script is not loaded
+    // in this tab (chrome:// page, extension page, or tab navigated away).
+    // Surface as ContentScriptUnavailableError so the coordinator can
+    // transition to TARGET_LOST rather than FAILED.
+    if (CONTENT_SCRIPT_ABSENT_PATTERN.test(detail)) {
+      throw new ContentScriptUnavailableError(target.tabId, detail);
+    }
+    throw new Error(`Failed to send INJECT_CHAOS to tab ${target.tabId}: ${detail}`);
   }
 
   // Build the CHAOS_INJECTED HavocEvent in the SW so it gets a correct

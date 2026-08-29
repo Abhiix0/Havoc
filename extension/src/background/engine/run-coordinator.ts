@@ -24,7 +24,7 @@ import type { ExperimentRun, ExperimentState } from '../../domain/run';
 import { checkpoint, getCurrentRun } from '../state';
 import { ResourceRegistry } from './resource-registry';
 import { verifyTarget } from './safety-controller';
-import { buildChaosParams, injectChaos } from './chaos-injector';
+import { buildChaosParams, injectChaos, ContentScriptUnavailableError } from './chaos-injector';
 import { createRunStateUpdateMessage } from '../../messaging/messages';
 
 // ---------------------------------------------------------------------------
@@ -148,7 +148,19 @@ export async function startRun(
     run = await transition(run, 'ACTIVE');
 
     if (chaosParams !== null) {
-      const handle = await injectChaos(run.target, chaosParams, _registry, nextSequence);
+      let handle;
+      try {
+        handle = await injectChaos(run.target, chaosParams, _registry, nextSequence);
+      } catch (err) {
+        if (err instanceof ContentScriptUnavailableError) {
+          // Content script not present — tab is unreachable for chaos.
+          // This is a target problem, not an experiment bug.
+          console.warn(`[HAVOC][coordinator] ${run.runId}: content script absent — ${err.message}`);
+          run = await transition(run, 'TARGET_LOST');
+          return await doCleanup(run);
+        }
+        throw err; // other errors propagate to the outer catch → FAILED
+      }
       // Phase 7 will persist handle.chaosEvent to IndexedDB here.
       console.log(`[HAVOC][coordinator] ${run.runId}: chaos active (injection ${handle.injectionId})`);
     }
