@@ -55,6 +55,11 @@
     transform: scale(0.985);
   }
 
+  .experiment-card:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+  }
+
   .experiment-card.selected {
     border-color: var(--havoc-red, #E85C4A);
     background: rgba(232, 92, 74, 0.06);

@@ -108,6 +108,7 @@
     <button
       type="button"
       class="back-link"
+      aria-label={historicalRunId ? 'Back to history' : 'Back to home'}
       on:click={() => dispatch('navigate', historicalRunId ? 'history' : 'home')}
     >
       {historicalRunId ? '← HISTORY' : '← HOME'}
@@ -180,6 +181,8 @@
     <button
       type="button"
       class="evidence-toggle"
+      aria-expanded={showRawEvidence}
+      aria-label="Toggle raw evidence and telemetry"
       on:click={() => (showRawEvidence = !showRawEvidence)}
     >
       <span class="toggle-left">
@@ -283,6 +286,12 @@
 
   .back-link:hover {
     color: var(--text-primary, #F2F2F0);
+  }
+
+  .back-link:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
   }
 
   .header-titles {
@@ -443,6 +452,11 @@
     color: var(--text-primary, #F2F2F0);
   }
 
+  .evidence-toggle:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+  }
+
   .toggle-left {
     display: flex;
     align-items: center;
@@ -482,6 +496,11 @@
     padding: 3px 8px;
     border-radius: var(--radius-sm, 4px);
     cursor: pointer;
+  }
+
+  .tab-btn:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
   }
 
   .tab-btn.active {

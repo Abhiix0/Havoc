@@ -68,6 +68,7 @@
     <footer class="home-footer">
       <button
         class="last-run-link"
+        aria-label="View last experiment run in history"
         on:click={() => dispatch('navigate', 'history')}
       >
         LAST RUN [{ $currentRun?.state }] →
@@ -200,5 +201,11 @@
   .last-run-link:hover {
     color: var(--text-primary, #F2F2F0);
     text-decoration: underline;
+  }
+
+  .last-run-link:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
   }
 </style>

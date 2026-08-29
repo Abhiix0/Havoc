@@ -80,6 +80,7 @@
     <button
       type="button"
       class="back-link"
+      aria-label="Back to home screen"
       on:click={() => dispatch('navigate', { screen: 'home' })}
     >
       ← HOME
@@ -108,6 +109,7 @@
           <button
             type="button"
             class="run-row"
+            aria-label="Inspect autopsy for {item.run.definition?.name || item.run.definition?.kind}"
             in:fly={{ y: 6, duration: 180, delay: i * 35 }}
             on:click={() => handleSelectRun(item.run.runId)}
           >
@@ -164,6 +166,12 @@
 
   .back-link:hover {
     color: var(--text-primary, #F2F2F0);
+  }
+
+  .back-link:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
   }
 
   .header-titles {
@@ -259,6 +267,11 @@
   .run-row:hover {
     background: var(--bg-surface-2, #1E1F23);
     border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .run-row:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
   }
 
   .run-row:active {

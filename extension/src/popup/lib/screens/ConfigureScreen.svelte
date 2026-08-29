@@ -132,6 +132,7 @@
     <button
       type="button"
       class="back-link"
+      aria-label="Back to experiment selection"
       on:click={() => dispatch('navigate', 'select')}
     >
       ← BACK
@@ -172,6 +173,7 @@
                 <button
                   type="button"
                   class="preset-chip"
+                  aria-label="Set delay to 400 milliseconds"
                   class:active={delayMs === 400}
                   on:click={() => (delayMs = 400)}
                   disabled={$starting}
@@ -181,6 +183,7 @@
                 <button
                   type="button"
                   class="preset-chip"
+                  aria-label="Set delay to 800 milliseconds"
                   class:active={delayMs === 800}
                   on:click={() => (delayMs = 800)}
                   disabled={$starting}
@@ -190,6 +193,7 @@
                 <button
                   type="button"
                   class="preset-chip"
+                  aria-label="Set delay to 2000 milliseconds"
                   class:active={delayMs === 2000}
                   on:click={() => (delayMs = 2000)}
                   disabled={$starting}
@@ -353,6 +357,12 @@
     color: var(--text-primary, #F2F2F0);
   }
 
+  .back-link:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
+  }
+
   .header-titles {
     display: flex;
     align-items: center;
@@ -447,6 +457,11 @@
     background: #25272D;
     color: var(--text-primary, #F2F2F0);
     border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .preset-chip:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
   }
 
   .preset-chip.active {

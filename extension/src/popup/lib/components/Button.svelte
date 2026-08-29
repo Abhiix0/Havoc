@@ -38,6 +38,11 @@
     transform: scale(0.98);
   }
 
+  .btn:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+  }
+
   /* Primary variant */
   .btn-primary {
     background: var(--havoc-red, #E85C4A);

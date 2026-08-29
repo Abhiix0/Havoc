@@ -30,7 +30,12 @@
       : 'var(--text-muted, #8A8B90)';
 </script>
 
-<div class="robot-wrap robot-{state}" class:animated-idle={isIdleOrReady}>
+<div
+  class="robot-wrap robot-{state}"
+  class:animated-idle={isIdleOrReady}
+  role="img"
+  aria-label="HAVOC mascot: {state}"
+>
   <svg
     width="96"
     height="108"
@@ -198,5 +203,19 @@
   @keyframes antenna-flash {
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animated-idle .robot-rig,
+    .animated-idle .robot-eyes,
+    .robot-armed .robot-rig,
+    .robot-armed .antenna-bulb,
+    .robot-chaos .robot-rig,
+    .robot-chaos .antenna-bulb,
+    .robot-chaos .chest-led,
+    .robot-running .robot-rig,
+    .robot-running .antenna-bulb {
+      animation: none !important;
+    }
   }
 </style>
