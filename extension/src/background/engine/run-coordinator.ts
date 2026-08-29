@@ -25,7 +25,7 @@ import { checkpoint, getCurrentRun } from '../state';
 import { ResourceRegistry } from './resource-registry';
 import { verifyTarget } from './safety-controller';
 import { buildChaosParams, injectChaos, ContentScriptUnavailableError } from './chaos-injector';
-import { createRunStateUpdateMessage } from '../../messaging/messages';
+import { createBridgeMessage, createRunStateUpdateMessage } from '../../messaging/messages';
 import { getRunSnapshot } from './signal-engine';
 import { openRecoveryWindow } from './recovery-window';
 import { deriveFromRecoveryResult } from './finding-engine';
@@ -53,6 +53,7 @@ function isTerminal(state: ExperimentState): boolean {
 function now(): number { return Date.now(); }
 
 function broadcastStateUpdate(run: ExperimentRun | null, previousState: ExperimentState | null): void {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
   chrome.runtime.sendMessage(createRunStateUpdateMessage(run, previousState)).catch(() => {
     // No popup open — expected and not an error.
   });
@@ -316,13 +317,114 @@ export async function startRun(
 }
 
 /**
+ * Alarm name used for recurring run watchdog checks.
+ */
+export const WATCHDOG_ALARM_NAME = 'havoc_watchdog' as const;
+export const WATCHDOG_STALENESS_THRESHOLD_MS = 30_000;
+
+/**
+ * Watchdog check triggered by chrome.alarms every ~15s.
+ * Detects if a run's execution promise died due to SW suspension/kill while in a non-terminal state.
+ * If stale beyond threshold, defensively sends REMOVE_CHAOS and transitions run to TIMED_OUT.
+ */
+export async function checkRunWatchdog(): Promise<void> {
+  const run = getCurrentRun();
+  if (run === null || isTerminal(run.state)) return;
+
+  const durationMs =
+    typeof run.definition.params.durationMs === 'number'
+      ? run.definition.params.durationMs
+      : 5_000;
+  const recoveryWindowMs =
+    typeof run.definition.params.recoveryWindowMs === 'number'
+      ? run.definition.params.recoveryWindowMs
+      : 8_000;
+
+  const timeSinceLastUpdate = now() - run.updatedAt;
+  const totalElapsed = now() - run.createdAt;
+  const maxAllowedTotal = durationMs + recoveryWindowMs + 30_000;
+
+  if (timeSinceLastUpdate > WATCHDOG_STALENESS_THRESHOLD_MS || totalElapsed > maxAllowedTotal) {
+    console.warn(
+      `[HAVOC][watchdog] run ${run.runId} appears dead in state "${run.state}" ` +
+      `(no update for ${Math.round(timeSinceLastUpdate / 1000)}s, total elapsed: ${Math.round(totalElapsed / 1000)}s) — forcing TIMED_OUT`
+    );
+
+    // Defensive tab-level chaos cleanup
+    if (typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+      try {
+        await chrome.tabs.sendMessage(
+          run.target.tabId,
+          createBridgeMessage('REMOVE_CHAOS', { injectionId: '' })
+        );
+      } catch {
+        // Tab may be closed or content script unreachable
+      }
+    }
+
+    const timedOutRun: ExperimentRun = {
+      ...run,
+      state: 'TIMED_OUT',
+      updatedAt: now(),
+    };
+
+    await checkpoint(null);
+    await saveRun(timedOutRun).catch((err) => {
+      console.error('[HAVOC][watchdog] failed to save TIMED_OUT run:', err);
+    });
+    await applyRetention().catch((err) => {
+      console.error('[HAVOC][watchdog] failed to apply retention:', err);
+    });
+    broadcastStateUpdate(null, 'TIMED_OUT');
+    console.log(`[HAVOC][watchdog] run ${run.runId} transitioned to TIMED_OUT and cleared`);
+  }
+}
+
+/**
  * Abort the currently active run.
  * Safe to call from any state; idempotent if already terminal.
+ * If _abortController is null (e.g. SW died/suspended), forces fallback abort from storage checkpoint.
  */
 export async function abortRun(): Promise<void> {
   const run = getCurrentRun();
   if (run === null || isTerminal(run.state)) return;
-  _abortController?.abort(new DOMException('Run aborted by user', 'AbortError'));
+
+  if (_abortController !== null) {
+    _abortController.abort(new DOMException('Run aborted by user', 'AbortError'));
+    return;
+  }
+
+  // Fallback: _abortController was lost on SW suspension, but a non-terminal run is stored
+  console.warn(
+    `[HAVOC][coordinator] abortRun: _abortController is null for active run ${run.runId} (${run.state}) — forcing fallback abort`
+  );
+
+  if (typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+    try {
+      await chrome.tabs.sendMessage(
+        run.target.tabId,
+        createBridgeMessage('REMOVE_CHAOS', { injectionId: '' })
+      );
+    } catch {
+      // Tab may be closed
+    }
+  }
+
+  const abortedRun: ExperimentRun = {
+    ...run,
+    state: 'ABORTED',
+    updatedAt: now(),
+  };
+
+  await checkpoint(null);
+  await saveRun(abortedRun).catch((err) => {
+    console.error('[HAVOC][coordinator] failed to save fallback ABORTED run:', err);
+  });
+  await applyRetention().catch((err) => {
+    console.error('[HAVOC][coordinator] failed to apply retention:', err);
+  });
+  broadcastStateUpdate(null, 'ABORTED');
+  console.log(`[HAVOC][coordinator] run ${run.runId} force-aborted to ABORTED`);
 }
 
 // ---------------------------------------------------------------------------

@@ -45,6 +45,7 @@ let _currentRun: ExperimentRun | null = null;
  * answered from a cold/empty state.
  */
 export async function rehydrate(): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
   const result = await chrome.storage.session.get(SESSION_KEY);
   const stored = result[SESSION_KEY] as ExperimentRun | null | undefined;
   _currentRun = stored ?? null;
@@ -55,13 +56,9 @@ export async function rehydrate(): Promise<void> {
   );
 }
 
-/**
- * Persist the current run snapshot to chrome.storage.session.
- * Call this on every meaningful state transition so the data survives SW
- * suspension. Pass `null` to clear the checkpoint (e.g. after a run ends).
- */
 export async function checkpoint(run: ExperimentRun | null): Promise<void> {
   _currentRun = run;
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
   if (run === null) {
     await chrome.storage.session.remove(SESSION_KEY);
     console.log('[HAVOC][state] checkpoint cleared');

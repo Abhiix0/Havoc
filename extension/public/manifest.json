@@ -24,6 +24,6 @@
       "matches": ["http://*/*", "https://*/*"]
     }
   ],
-  "permissions": ["storage", "scripting", "activeTab"],
+  "permissions": ["storage", "scripting", "activeTab", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"]
 }

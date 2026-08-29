@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ResourceRegistry } from '../resource-registry';
 import {
@@ -335,6 +336,68 @@ describe('HAVOC Phase 9 — Hardening Golden Tests', () => {
 
       expect(elapsed).toBeLessThan(1000); // resolved within <1s instead of waiting 8s
       expect(result.recovery.outcome).toBe('UNKNOWN');
+    });
+  });
+
+  describe('Golden Test 6: Watchdog & Fallback Abort Isolation', () => {
+    it('detects stale run and transitions to TIMED_OUT on watchdog alarm', async () => {
+      const { checkRunWatchdog } = await import('../run-coordinator');
+      const { checkpoint, getCurrentRun } = await import('../../state');
+
+      // Create a stale run (e.g. stuck in CLEANING for 40s)
+      const staleRun: import('../../../domain/run').ExperimentRun = {
+        runId: 'stale-run-123',
+        target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
+        definition: {
+          id: 'def-1',
+          name: 'Stale Exp',
+          description: 'Stale test',
+          kind: 'fetch_latency',
+          params: { durationMs: 2000, recoveryWindowMs: 2000 },
+        },
+        state: 'CLEANING',
+        createdAt: Date.now() - 50_000,
+        updatedAt: Date.now() - 40_000, // 40s ago (> 30s threshold)
+      };
+
+      await checkpoint(staleRun);
+      expect(getCurrentRun()?.state).toBe('CLEANING');
+
+      // Run watchdog
+      await checkRunWatchdog();
+
+      // Checkpoint cleared
+      expect(getCurrentRun()).toBeNull();
+    });
+
+    it('forces fallback abort when _abortController is null but active run exists', async () => {
+      const { abortRun } = await import('../run-coordinator');
+      const { checkpoint, getCurrentRun } = await import('../../state');
+
+      // Mock an active run left in session storage after SW restart
+      const zombieRun: import('../../../domain/run').ExperimentRun = {
+        runId: 'zombie-run-456',
+        target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
+        definition: {
+          id: 'def-2',
+          name: 'Zombie Exp',
+          description: 'Zombie test',
+          kind: 'fetch_latency',
+          params: {},
+        },
+        state: 'ACTIVE',
+        createdAt: Date.now() - 10_000,
+        updatedAt: Date.now() - 5_000,
+      };
+
+      await checkpoint(zombieRun);
+      expect(getCurrentRun()?.state).toBe('ACTIVE');
+
+      // Call abortRun without an active in-memory _abortController
+      await abortRun();
+
+      // Checkpoint cleared and run aborted
+      expect(getCurrentRun()).toBeNull();
     });
   });
 });

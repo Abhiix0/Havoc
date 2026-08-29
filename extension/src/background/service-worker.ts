@@ -31,7 +31,13 @@ import {
 import { openDatabase } from '../storage/database';
 import { saveEvent, saveSignals } from '../storage/repository';
 import { rehydrate, getCurrentRun } from './state';
-import { startRun, abortRun, nextSequence } from './engine/run-coordinator';
+import {
+  startRun,
+  abortRun,
+  nextSequence,
+  checkRunWatchdog,
+  WATCHDOG_ALARM_NAME,
+} from './engine/run-coordinator';
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
 import { globalPerfMonitor } from './engine/performance-monitor';
 import type { HavocEvent } from '../domain/event';
@@ -39,9 +45,36 @@ import type { Target } from '../domain/target';
 
 console.log('[HAVOC][SW] service worker booted');
 
+// ---------------------------------------------------------------------------
+// Synchronous Alarms listener — wakes service worker to un-stick zombie runs.
+// ---------------------------------------------------------------------------
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === WATCHDOG_ALARM_NAME) {
+    checkRunWatchdog().catch((err: unknown) => {
+      console.error('[HAVOC][SW] watchdog error:', err);
+    });
+  }
+});
+
+function ensureWatchdogAlarm(): void {
+  try {
+    chrome.alarms.get(WATCHDOG_ALARM_NAME, (alarm) => {
+      if (!alarm) {
+        chrome.alarms.create(WATCHDOG_ALARM_NAME, { periodInMinutes: 0.25 });
+        console.log('[HAVOC][SW] watchdog alarm initialized (15s interval)');
+      }
+    });
+  } catch {
+    // alarms API may not be available in non-extension environments
+  }
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[HAVOC][SW] installed/updated:', details.reason);
+  ensureWatchdogAlarm();
 });
+
+ensureWatchdogAlarm();
 
 // ---------------------------------------------------------------------------
 // Per-run sequence counters.
