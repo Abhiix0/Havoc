@@ -320,8 +320,9 @@
 </script>
 
 <div class="crt-frame">
-  <!-- Scanline Overlay -->
+  <!-- Scanline & Vignette Overlays -->
   <div class="scanlines" />
+  <div class="crt-vignette" />
 
   <!-- Main Container -->
   <main class="console-body">
@@ -330,7 +331,7 @@
       <div class="title-row">
         <div class="brand">
           <span class="brand-glitch">HAVOC</span>
-          <span class="sub-brand">// DIAGNOSTIC CONSOLE v0.8</span>
+          <span class="sub-brand">// DIAGNOSTIC CONSOLE v1.0</span>
         </div>
         <div class="status-indicator">
           {#if isRunActive}
@@ -384,6 +385,17 @@
               class:failed={isFailed}
               title={step}
             >
+              <span class="node-glyph">
+                {#if isFailed}
+                  <span class="glyph-pixel glyph-failed">✖</span>
+                {:else if isPast}
+                  <span class="glyph-pixel glyph-past">■</span>
+                {:else if isCurrent}
+                  <span class="glyph-pixel glyph-current">▣</span>
+                {:else}
+                  <span class="glyph-pixel glyph-pending">□</span>
+                {/if}
+              </span>
               <span class="node-num">0{i + 1}</span>
               <span class="node-name">{step}</span>
               {#if i < PIPELINE_STEPS.length - 1}
@@ -756,16 +768,24 @@
 </div>
 
 <style>
-  /* CRT Chassis & Scanline effect */
+  /* CRT Chassis, Vignette & Scanline effect */
   .crt-frame {
     position: relative;
     width: 440px;
     min-height: 560px;
-    background: #06090e;
+    background: #05070a;
     color: #cbd5e1;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    animation: crt-flicker 0.18s infinite;
+    font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  }
+
+  @keyframes crt-flicker {
+    0% { opacity: 0.993; }
+    50% { opacity: 1; }
+    100% { opacity: 0.996; }
   }
 
   .scanlines {
@@ -778,15 +798,32 @@
     z-index: 100;
     background: linear-gradient(
       rgba(18, 16, 16, 0) 50%,
-      rgba(0, 0, 0, 0.28) 50%
+      rgba(0, 0, 0, 0.35) 50%
     ),
     linear-gradient(
       90deg,
-      rgba(255, 0, 0, 0.02),
-      rgba(0, 255, 0, 0.01),
-      rgba(0, 0, 255, 0.02)
+      rgba(255, 0, 0, 0.03),
+      rgba(0, 255, 0, 0.015),
+      rgba(0, 0, 255, 0.03)
     );
     background-size: 100% 2px, 3px 100%;
+  }
+
+  .crt-vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 101;
+    background: radial-gradient(
+      circle at 50% 50%,
+      transparent 60%,
+      rgba(0, 0, 0, 0.4) 88%,
+      rgba(0, 0, 0, 0.75) 100%
+    );
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9);
   }
 
   .console-body {
@@ -801,13 +838,14 @@
 
   /* Header */
   .console-header {
-    background: #0b111a;
+    background: #090e17;
     border: 1px solid #1e293b;
     border-left: 3px solid #00f0ff;
     padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.08);
   }
 
   .title-row {
@@ -823,17 +861,17 @@
   }
 
   .brand-glitch {
-    font-size: 14px;
-    font-weight: 900;
-    letter-spacing: 2px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
     color: #00f0ff;
-    text-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+    text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
   }
 
   .sub-brand {
     font-size: 9px;
-    letter-spacing: 1px;
-    color: #64748b;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
   }
 
   .target-strip {
@@ -841,16 +879,22 @@
     align-items: center;
     gap: 6px;
     font-size: 10px;
-    background: #070c14;
-    padding: 3px 6px;
+    background: #05080e;
+    padding: 4px 6px;
     border: 1px solid #131e2e;
   }
 
-  .target-chip {
-    padding: 1px 4px;
-    border-radius: 2px;
-    font-size: 9px;
+  .label {
+    color: #38bdf8;
     font-weight: bold;
+    font-size: 9px;
+  }
+
+  .target-chip {
+    font-family: 'Press Start 2P', monospace;
+    padding: 2px 4px;
+    border-radius: 2px;
+    font-size: 7.5px;
     background: #0284c7;
     color: #fff;
   }
@@ -860,7 +904,7 @@
   }
 
   .target-origin {
-    color: #94a3b8;
+    color: #cbd5e1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -869,31 +913,34 @@
 
   /* Badges */
   .badge {
-    font-size: 10px;
-    font-weight: bold;
-    padding: 2px 6px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7.5px;
+    padding: 3px 6px;
     letter-spacing: 0.5px;
     border-radius: 2px;
+    line-height: 1.3;
   }
   .badge-active {
     background: #7c2d12;
-    color: #fb923c;
+    color: #fed7aa;
     border: 1px solid #ea580c;
-    text-shadow: 0 0 4px rgba(251, 146, 60, 0.6);
+    text-shadow: 0 0 6px rgba(251, 146, 60, 0.7);
   }
   .badge-completed {
     background: #064e3b;
-    color: #4ade80;
+    color: #86efac;
     border: 1px solid #16a34a;
+    text-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
   }
   .badge-terminal {
     background: #450a0a;
-    color: #f87171;
+    color: #fca5a5;
     border: 1px solid #dc2626;
   }
   .badge-standby {
     background: #1e293b;
-    color: #94a3b8;
+    color: #cbd5e1;
+    border: 1px solid #334155;
   }
 
   .blink {
@@ -907,7 +954,7 @@
   .error-banner {
     background: #450a0a;
     border: 1px solid #dc2626;
-    color: #fca5a5;
+    color: #fecaca;
     padding: 5px 8px;
     font-size: 10px;
     display: flex;
@@ -924,7 +971,7 @@
 
   /* Pipeline ribbon */
   .pipeline-section {
-    background: #0b111a;
+    background: #090e17;
     border: 1px solid #1e293b;
     padding: 6px 8px;
     display: flex;
@@ -935,17 +982,29 @@
   .pipeline-header {
     display: flex;
     justify-content: space-between;
-    font-size: 9px;
-    color: #64748b;
+    font-size: 8.5px;
+    color: #94a3b8;
     letter-spacing: 0.5px;
+  }
+
+  .sec-label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    color: #94a3b8;
+  }
+
+  .run-id-tag {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    color: #38bdf8;
   }
 
   .pipeline-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #05080e;
-    padding: 4px 6px;
+    background: #04060a;
+    padding: 5px 6px;
     border: 1px solid #131e2e;
     overflow-x: auto;
   }
@@ -955,8 +1014,35 @@
     align-items: center;
     gap: 3px;
     font-size: 8.5px;
+    color: #64748b;
+  }
+  .node-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    line-height: 1;
+  }
+  .glyph-current {
+    color: #00f0ff;
+    text-shadow: 0 0 6px rgba(0, 240, 255, 0.85);
+    animation: pixel-pulse 0.9s infinite alternate ease-in-out;
+  }
+  @keyframes pixel-pulse {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    100% { transform: scale(1.18); opacity: 1; }
+  }
+  .glyph-past {
+    color: #22c55e;
+  }
+  .glyph-failed {
+    color: #ef4444;
+    text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+  }
+  .glyph-pending {
     color: #475569;
   }
+
   .pipe-node.past {
     color: #22c55e;
   }
@@ -970,12 +1056,17 @@
     font-weight: bold;
   }
   .node-num {
-    opacity: 0.6;
-    font-size: 7px;
+    opacity: 0.7;
+    font-size: 7.5px;
+  }
+  .node-name {
+    font-size: 8px;
+    letter-spacing: 0.3px;
   }
   .node-arrow {
-    opacity: 0.3;
+    opacity: 0.4;
     margin-left: 2px;
+    color: #94a3b8;
   }
 
   /* Navigation */
@@ -988,27 +1079,27 @@
 
   .nav-tab {
     flex: 1;
-    background: #0b111a;
-    color: #64748b;
+    background: #090e17;
+    color: #94a3b8;
     border: 1px solid #1e293b;
     border-bottom: none;
-    font-family: inherit;
-    font-size: 9.5px;
-    font-weight: bold;
-    padding: 5px 2px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7.5px;
+    padding: 6px 2px;
     cursor: pointer;
     letter-spacing: 0.5px;
     transition: all 0.12s;
+    line-height: 1.2;
   }
   .nav-tab:hover {
     background: #131e2e;
-    color: #cbd5e1;
+    color: #f1f5f9;
   }
   .nav-tab.active {
     background: #131e2e;
     color: #00f0ff;
     border-top: 2px solid #00f0ff;
-    text-shadow: 0 0 4px rgba(0, 240, 255, 0.4);
+    text-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
   }
 
   /* Viewport Area */
@@ -1016,7 +1107,7 @@
     flex: 1;
     min-height: 250px;
     max-height: 310px;
-    background: #090e16;
+    background: #080c14;
     border: 1px solid #1e293b;
     padding: 8px;
     overflow-y: auto;
@@ -1029,16 +1120,18 @@
     justify-content: center;
     height: 100%;
     min-height: 200px;
-    color: #64748b;
+    color: #94a3b8;
     text-align: center;
     gap: 6px;
   }
   .empty-prompt {
     font-size: 11px;
-    color: #94a3b8;
+    color: #cbd5e1;
+    font-weight: bold;
   }
   .empty-sub {
-    font-size: 9px;
+    font-size: 9.5px;
+    color: #94a3b8;
     max-width: 260px;
   }
 
@@ -1050,14 +1143,14 @@
   }
 
   .event-row {
-    background: #06090e;
+    background: #05080e;
     border: 1px solid #15202e;
-    border-left: 2px solid #334155;
-    padding: 5px 7px;
-    font-size: 9.5px;
+    border-left: 3px solid #334155;
+    padding: 6px 8px;
+    font-size: 10px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
   }
   .event-row.type-chaos_injected {
     border-left-color: #f97316;
@@ -1082,36 +1175,38 @@
     gap: 6px;
   }
   .evt-seq {
-    color: #64748b;
+    color: #94a3b8;
     font-weight: bold;
+    font-size: 9px;
   }
   .evt-time {
-    color: #94a3b8;
+    color: #cbd5e1;
+    font-size: 9px;
   }
   .evt-badge {
-    font-size: 8px;
-    font-weight: bold;
-    padding: 1px 4px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    padding: 2px 4px;
     border-radius: 2px;
     background: #1e293b;
     color: #e2e8f0;
   }
-  .badge-chaos_injected { background: #7c2d12; color: #fdba74; }
-  .badge-request_completed { background: #064e3b; color: #86efac; }
+  .badge-chaos_injected { background: #7c2d12; color: #fed7aa; }
+  .badge-request_completed { background: #064e3b; color: #a7f3d0; }
   .badge-request_transport_failure,
   .badge-request_http_failure,
-  .badge-request_timeout { background: #450a0a; color: #fca5a5; }
-  .badge-dom_observation { background: #164e63; color: #67e8f9; }
+  .badge-request_timeout { background: #450a0a; color: #fecaca; }
+  .badge-dom_observation { background: #164e63; color: #a5f3fc; }
 
   .evt-details {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    color: #94a3b8;
+    color: #cbd5e1;
   }
   .evt-resource {
-    color: #cbd5e1;
+    color: #f1f5f9;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1119,11 +1214,12 @@
   }
   .evt-dom-kind {
     color: #38bdf8;
+    font-weight: bold;
   }
   .evt-selector {
-    color: #94a3b8;
+    color: #cbd5e1;
     background: #0b111a;
-    padding: 0 3px;
+    padding: 0 4px;
     border: 1px solid #1e293b;
     max-width: 140px;
     overflow: hidden;
@@ -1131,7 +1227,7 @@
     white-space: nowrap;
   }
   .evt-snippet {
-    color: #e2e8f0;
+    color: #f8fafc;
     font-style: italic;
     max-width: 160px;
     overflow: hidden;
@@ -1143,10 +1239,10 @@
     font-weight: bold;
     border-radius: 2px;
   }
-  .evt-status.ok { color: #4ade80; background: #064e3b; }
-  .evt-status.fail { color: #f87171; background: #450a0a; }
-  .evt-duration { color: #f59e0b; }
-  .evt-err-msg { color: #ef4444; }
+  .evt-status.ok { color: #86efac; background: #064e3b; }
+  .evt-status.fail { color: #fca5a5; background: #450a0a; }
+  .evt-duration { color: #fbbf24; }
+  .evt-err-msg { color: #f87171; }
 
   /* Signals View */
   .signals-list {
@@ -1155,7 +1251,7 @@
     gap: 6px;
   }
   .signal-card {
-    background: #06090e;
+    background: #05080e;
     border: 1px solid #1e293b;
     border-left: 3px solid #00f0ff;
     padding: 6px 8px;
@@ -1179,21 +1275,22 @@
     align-items: center;
   }
   .sig-type {
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: bold;
-    color: #f1f5f9;
+    color: #f8fafc;
   }
   .sig-conf-badge {
-    font-size: 9px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7.5px;
     color: #00f0ff;
     background: #0c2033;
-    padding: 1px 5px;
+    padding: 2px 5px;
     border-radius: 2px;
     border: 1px solid #0284c7;
   }
 
   .sig-meter {
-    height: 3px;
+    height: 4px;
     background: #1e293b;
     border-radius: 1px;
     overflow: hidden;
@@ -1201,18 +1298,19 @@
   .sig-meter-fill {
     height: 100%;
     background: #00f0ff;
+    box-shadow: 0 0 6px rgba(0, 240, 255, 0.6);
   }
 
   .sig-footer {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 8.5px;
-    color: #64748b;
+    font-size: 9px;
+    color: #94a3b8;
   }
   .ref-tag {
     background: #131e2e;
-    color: #94a3b8;
+    color: #cbd5e1;
     padding: 0 4px;
     border-radius: 2px;
   }
@@ -1234,48 +1332,57 @@
   .outcome-recovered {
     background: #064e3b;
     border-color: #16a34a;
-    color: #4ade80;
+    color: #86efac;
   }
   .outcome-degraded {
     background: #451a03;
     border-color: #d97706;
-    color: #fbbf24;
+    color: #fde68a;
   }
   .outcome-failed {
     background: #450a0a;
     border-color: #dc2626;
-    color: #f87171;
+    color: #fca5a5;
   }
   .outcome-unknown {
     background: #082f49;
     border-color: #0284c7;
-    color: #38bdf8;
+    color: #7dd3fc;
   }
 
   .outcome-title {
     display: flex;
     flex-direction: column;
+    gap: 2px;
   }
-  .outcome-tag { font-size: 8.5px; opacity: 0.8; }
-  .outcome-val { font-size: 14px; font-weight: 900; letter-spacing: 1px; }
+  .outcome-tag {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    opacity: 0.85;
+  }
+  .outcome-val {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
 
   .outcome-window {
     display: flex;
     flex-direction: column;
     text-align: right;
-    font-size: 9px;
-    opacity: 0.9;
+    font-size: 9.5px;
+    color: #f1f5f9;
   }
 
   .no-finding-box {
     background: #064e3b;
     border: 1px solid #16a34a;
-    color: #bbf7d0;
+    color: #dcfce7;
     padding: 10px;
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 10.5px;
+    font-size: 11px;
   }
   .nf-icon {
     font-size: 16px;
@@ -1283,7 +1390,7 @@
   }
 
   .finding-card {
-    background: #06090e;
+    background: #05080e;
     border: 1px solid #1e293b;
     padding: 8px;
     display: flex;
@@ -1303,26 +1410,26 @@
     align-items: center;
   }
   .sev-badge {
-    font-size: 10px;
-    font-weight: bold;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
   }
-  .sev-high { color: #f87171; }
-  .sev-medium { color: #fbbf24; }
+  .sev-high { color: #fca5a5; }
+  .sev-medium { color: #fde68a; }
   .fnd-conf {
-    font-size: 9px;
-    color: #94a3b8;
+    font-size: 9.5px;
+    color: #cbd5e1;
   }
   .fnd-desc {
     margin: 0;
-    font-size: 10px;
-    line-height: 1.4;
-    color: #e2e8f0;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: #f1f5f9;
   }
   .fnd-evidence {
     display: flex;
     justify-content: space-between;
-    font-size: 8.5px;
-    color: #64748b;
+    font-size: 9px;
+    color: #94a3b8;
     border-top: 1px solid #131e2e;
     padding-top: 4px;
   }
@@ -1335,9 +1442,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    background: #070b12;
   }
   .ctrl-legend {
-    font-size: 9px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7.5px;
     color: #00f0ff;
     padding: 0 4px;
     letter-spacing: 0.5px;
@@ -1350,8 +1459,8 @@
     gap: 8px;
   }
   .ctrl-label {
-    font-size: 9.5px;
-    color: #94a3b8;
+    font-size: 10px;
+    color: #cbd5e1;
   }
 
   .btn-group {
@@ -1359,34 +1468,37 @@
     gap: 4px;
   }
   .btn-toggle {
-    background: #0b111a;
+    background: #090e17;
     border: 1px solid #1e293b;
-    color: #64748b;
-    font-family: inherit;
-    font-size: 9px;
-    padding: 3px 8px;
+    color: #94a3b8;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7.5px;
+    padding: 4px 8px;
     cursor: pointer;
+    transition: all 0.12s;
   }
   .btn-toggle.selected {
     background: #0284c7;
     color: #fff;
     border-color: #38bdf8;
     font-weight: bold;
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
   }
 
   input[type='number'],
   select {
-    background: #05080e;
+    background: #04060a;
     border: 1px solid #1e293b;
-    color: #e2e8f0;
-    font-family: inherit;
-    font-size: 10px;
-    padding: 3px 6px;
+    color: #f1f5f9;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    padding: 4px 6px;
     width: 140px;
   }
   input[type='number']:focus,
   select:focus {
     outline: 1px solid #00f0ff;
+    border-color: #00f0ff;
   }
 
   .input-with-presets {
@@ -1400,12 +1512,14 @@
     gap: 3px;
   }
   .btn-preset {
-    background: #0b111a;
+    background: #090e17;
     border: 1px solid #1e293b;
-    color: #64748b;
-    font-size: 8px;
-    padding: 1px 4px;
+    color: #94a3b8;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 6.5px;
+    padding: 2px 4px;
     cursor: pointer;
+    transition: all 0.1s;
   }
   .btn-preset:hover {
     color: #00f0ff;
@@ -1423,11 +1537,10 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 8px;
-    font-family: inherit;
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 1px;
+    padding: 9px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 9px;
+    letter-spacing: 0.5px;
     cursor: pointer;
     border-radius: 2px;
     transition: all 0.15s;
@@ -1438,16 +1551,16 @@
     color: #022c15;
     border: 1px solid #00ff88;
     text-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
-    box-shadow: 0 0 10px rgba(0, 255, 136, 0.25);
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.35);
   }
   .btn-start:hover:not(:disabled) {
     background: #34d399;
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.6);
   }
   .btn-start:disabled {
-    background: #13241b;
+    background: #112017;
     color: #4b6355;
-    border-color: #1e3a2b;
+    border-color: #1a3023;
     box-shadow: none;
     cursor: default;
   }
@@ -1456,16 +1569,17 @@
     background: #ef4444;
     color: #fff;
     border: 1px solid #ef4444;
-    box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
   }
   .btn-abort:hover:not(:disabled) {
     background: #f87171;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.7);
   }
   .btn-abort:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .btn-icon {
-    font-size: 10px;
+    font-size: 9px;
   }
 </style>
