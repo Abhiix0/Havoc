@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { fade, fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import type { ExperimentKind } from '../../../domain/experiment';
   import ExperimentCard from '../components/ExperimentCard.svelte';
 
@@ -59,7 +60,7 @@
   }
 </script>
 
-<div class="select-screen" in:fade={{ duration: 200 }} out:fade={{ duration: 150 }}>
+<div class="select-screen" in:fade={{ duration: 200, easing: cubicOut }} out:fade={{ duration: 150, easing: cubicOut }}>
   <header class="select-header">
     <button
       type="button"

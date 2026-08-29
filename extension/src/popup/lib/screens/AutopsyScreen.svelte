@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { fade, fly, slide } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import {
     currentRun,
     recovery,
@@ -101,7 +102,7 @@
   }
 </script>
 
-<div class="autopsy-screen" in:fade={{ duration: 200 }}>
+<div class="autopsy-screen" in:fade={{ duration: 200, easing: cubicOut }}>
   <!-- Top Navigation Header -->
   <header class="autopsy-header">
     <button

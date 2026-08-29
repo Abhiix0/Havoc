@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { activeTab, currentRun, TERMINAL_STATES } from '../stores/run';
   import Robot from '../components/Robot.svelte';
   import TargetCard from '../components/TargetCard.svelte';
@@ -20,7 +21,7 @@
     : [{ label: 'STANDBY', tone: 'neutral' as const }];
 </script>
 
-<div class="home-screen" in:fade={{ duration: 200 }}>
+<div class="home-screen" in:fade={{ duration: 200, easing: cubicOut }}>
   <!-- Top Brand Header -->
   <header class="home-header">
     <div class="brand">

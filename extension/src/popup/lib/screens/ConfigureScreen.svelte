@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { fade, slide } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import type { ExperimentDefinition, ExperimentKind } from '../../../domain/experiment';
   import type {
     FetchFailureMode,
@@ -125,7 +126,7 @@
   }
 </script>
 
-<div class="config-screen" in:fade={{ duration: 200 }} out:fade={{ duration: 150 }}>
+<div class="config-screen" in:fade={{ duration: 200, easing: cubicOut }} out:fade={{ duration: 150, easing: cubicOut }}>
   <!-- Screen Header -->
   <header class="config-header">
     <button

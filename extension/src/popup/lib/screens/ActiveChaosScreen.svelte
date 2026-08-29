@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { fade } from 'svelte/transition';
+  import { fade, slide } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import {
     currentRun,
     events,
@@ -108,7 +109,7 @@
   $: recentEvents = $events.slice(-5).reverse();
 </script>
 
-<div class="active-screen" in:fade={{ duration: 200 }}>
+<div class="active-screen" in:fade={{ duration: 200, easing: cubicOut }}>
   <!-- Top State Header -->
   <header class="active-header">
     <div class="header-left">
@@ -162,7 +163,9 @@
         </div>
       {:else}
         {#each recentEvents as evt (evt.id)}
-          <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+          <div in:slide={{ duration: 120, easing: cubicOut }}>
+            <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+          </div>
         {/each}
       {/if}
     </div>

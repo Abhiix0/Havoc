@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { fade, fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { getAllRuns, getRecoveryByRunId } from '../../../storage/repository';
   import type { ExperimentRun } from '../../../domain/run';
   import type { Recovery } from '../../../domain/recovery';
@@ -73,7 +74,7 @@
   }
 </script>
 
-<div class="history-screen" in:fade={{ duration: 200 }}>
+<div class="history-screen" in:fade={{ duration: 200, easing: cubicOut }}>
   <!-- Top Navigation Header -->
   <header class="history-header">
     <button

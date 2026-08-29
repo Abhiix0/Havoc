@@ -60,8 +60,8 @@
 
       <!-- Eyes Group -->
       <g class="robot-eyes" style="transform-origin: 48px 41px;">
-        <rect x="35" y="37" width="8" height="8" rx="2" fill={eyeColor} />
-        <rect x="53" y="37" width="8" height="8" rx="2" fill={eyeColor} />
+        <rect x="35" y="37" width="8" height="8" rx="2" fill={eyeColor} class="eye-rect" />
+        <rect x="53" y="37" width="8" height="8" rx="2" fill={eyeColor} class="eye-rect" />
         <!-- Eye glints -->
         <rect x="36" y="38" width="2.5" height="2.5" rx="0.5" fill="#FFFFFF" opacity="0.8" />
         <rect x="54" y="38" width="2.5" height="2.5" rx="0.5" fill="#FFFFFF" opacity="0.8" />
@@ -108,11 +108,18 @@
     align-items: center;
     justify-content: center;
     user-select: none;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .robot-svg {
     display: block;
     overflow: visible;
+  }
+
+  .antenna-bulb,
+  .eye-rect,
+  .chest-led {
+    transition: fill 0.2s ease, opacity 0.2s ease;
   }
 
   /* Idle / Ready state */
