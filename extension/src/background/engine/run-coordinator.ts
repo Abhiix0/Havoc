@@ -29,6 +29,14 @@ import { createRunStateUpdateMessage } from '../../messaging/messages';
 import { getRunSnapshot } from './signal-engine';
 import { openRecoveryWindow } from './recovery-window';
 import { deriveFromRecoveryResult } from './finding-engine';
+import {
+  saveRun,
+  saveEvent,
+  saveRecovery,
+  saveFinding,
+  saveAllEvidence,
+  applyRetention,
+} from '../../storage/repository';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +86,14 @@ async function transition(
   const previousState = run.state;
   const updated: ExperimentRun = { ...run, ...extra, state: newState, updatedAt: now() };
   await checkpoint(updated);
+  await saveRun(updated).catch((err: unknown) => {
+    console.error(`[HAVOC][coordinator] failed to persist run ${run.runId} state ${newState}:`, err);
+  });
+  if (isTerminal(newState)) {
+    await applyRetention().catch((err: unknown) => {
+      console.error('[HAVOC][coordinator] failed to apply retention:', err);
+    });
+  }
   broadcastStateUpdate(updated, previousState);
   console.log(`[HAVOC][coordinator] ${run.runId}: ${previousState} → ${newState}`);
   return updated;
@@ -123,6 +139,9 @@ export async function startRun(
     updatedAt: now(),
   };
   await checkpoint(run);
+  await saveRun(run).catch((err: unknown) => {
+    console.error(`[HAVOC][coordinator] failed to persist CREATED run ${run.runId}:`, err);
+  });
   broadcastStateUpdate(run, null);
   console.log(`[HAVOC][coordinator] created run ${run.runId} (${definition.kind})`);
 
@@ -167,7 +186,10 @@ export async function startRun(
         }
         throw err; // other errors propagate to the outer catch → FAILED
       }
-      // Phase 7 will persist handle.chaosEvent to IndexedDB here.
+      // Persist the CHAOS_INJECTED event created by the SW
+      await saveEvent(handle.chaosEvent).catch((err: unknown) => {
+        console.error(`[HAVOC][coordinator] failed to persist chaosEvent:`, err);
+      });
       console.log(`[HAVOC][coordinator] ${run.runId}: chaos active (injection ${handle.injectionId})`);
     }
 
@@ -229,7 +251,21 @@ export async function startRun(
       signalIndex
     );
 
-    // Phase 7 will persist finding + evidence to IndexedDB here.
+    // Persist recovery, evidence, and finding
+    await saveRecovery(recoveryResult.recovery).catch((err: unknown) => {
+      console.error(`[HAVOC][coordinator] failed to persist recovery:`, err);
+    });
+    if (evidence.length > 0) {
+      await saveAllEvidence(evidence).catch((err: unknown) => {
+        console.error(`[HAVOC][coordinator] failed to persist evidence:`, err);
+      });
+    }
+    if (finding !== null) {
+      await saveFinding(finding).catch((err: unknown) => {
+        console.error(`[HAVOC][coordinator] failed to persist finding:`, err);
+      });
+    }
+
     console.log(
       `[HAVOC][coordinator] ${run.runId}: recovery=${recoveryResult.recovery.outcome}`,
       finding ? `finding=${finding.severity} confidence=${finding.confidence.toFixed(2)}` : 'no finding',

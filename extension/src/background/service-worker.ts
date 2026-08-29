@@ -28,6 +28,7 @@ import {
   isDomObservationMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
+import { saveEvent, saveSignals } from '../storage/repository';
 import { rehydrate, getCurrentRun } from './state';
 import { startRun, nextSequence } from './engine/run-coordinator';
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
@@ -112,8 +113,7 @@ function domObservationToEvent(obs: DomObservationPayload, runId: string): Havoc
 }
 
 // ---------------------------------------------------------------------------
-// Emit a HavocEvent: log it and feed it to the Signal Engine.
-// Phase 7 will also persist it to IndexedDB here.
+// Emit a HavocEvent: log it, persist it, and feed it to the Signal Engine.
 // ---------------------------------------------------------------------------
 function emitEvent(event: HavocEvent): void {
   if (event.type !== 'DOM_OBSERVATION') {
@@ -134,8 +134,18 @@ function emitEvent(event: HavocEvent): void {
     );
   }
 
-  // Feed to Signal Engine — returns derived Signals (logged inside processEvent).
-  processEvent(event);
+  // Persist event to IndexedDB
+  saveEvent(event).catch((err: unknown) => {
+    console.error('[HAVOC][SW] Failed to persist event:', err);
+  });
+
+  // Feed to Signal Engine — returns derived Signals.
+  const signals = processEvent(event);
+  if (signals.length > 0) {
+    saveSignals(signals).catch((err: unknown) => {
+      console.error('[HAVOC][SW] Failed to persist derived signals:', err);
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

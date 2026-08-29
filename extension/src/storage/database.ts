@@ -10,7 +10,13 @@ export const STORES = {
   recovery: 'recovery',
 } as const;
 
+let _cachedDb: IDBDatabase | null = null;
+
 export function openDatabase(): Promise<IDBDatabase> {
+  if (_cachedDb !== null) {
+    return Promise.resolve(_cachedDb);
+  }
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -47,7 +53,25 @@ export function openDatabase(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      _cachedDb = request.result;
+      _cachedDb.onversionchange = () => {
+        _cachedDb?.close();
+        _cachedDb = null;
+      };
+      _cachedDb.onclose = () => {
+        _cachedDb = null;
+      };
+      resolve(_cachedDb);
+    };
+
     request.onerror = () => reject(request.error);
   });
+}
+
+export function closeDatabase(): void {
+  if (_cachedDb !== null) {
+    _cachedDb.close();
+    _cachedDb = null;
+  }
 }
