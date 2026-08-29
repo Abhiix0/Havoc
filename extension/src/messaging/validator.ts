@@ -8,6 +8,9 @@ import {
   type ObservationTransport,
   type GetCurrentRunMessage,
   type CurrentRunResponseMessage,
+  type CreateRunMessage,
+  type CreateRunResponseMessage,
+  type RunStateUpdateMessage,
   type RuntimeMessageType,
 } from './messages';
 
@@ -33,8 +36,6 @@ export function isBridgeMessage(data: unknown): data is BridgeMessage {
 
 // ---------------------------------------------------------------------------
 // ObservationPayload validator
-// Re-validates the payload in the content script after crossing the untrusted
-// postMessage boundary — the page world is untrusted input.
 // ---------------------------------------------------------------------------
 
 const VALID_OUTCOMES: ReadonlySet<ObservationOutcome> = new Set([
@@ -49,7 +50,6 @@ const VALID_TRANSPORTS: ReadonlySet<ObservationTransport> = new Set(['fetch', 'x
 export function isObservationPayload(data: unknown): data is ObservationPayload {
   if (typeof data !== 'object' || data === null) return false;
   const p = data as Record<string, unknown>;
-
   if (typeof p.observationId !== 'string' || p.observationId.length === 0) return false;
   if (!VALID_TRANSPORTS.has(p.transport as ObservationTransport)) return false;
   if (!VALID_OUTCOMES.has(p.outcome as ObservationOutcome)) return false;
@@ -59,15 +59,9 @@ export function isObservationPayload(data: unknown): data is ObservationPayload 
   if (typeof p.startTime !== 'number' || !isFinite(p.startTime)) return false;
   if (typeof p.duration !== 'number' || !isFinite(p.duration) || p.duration < 0) return false;
   if ('errorMessage' in p && typeof p.errorMessage !== 'string') return false;
-
   return true;
 }
 
-/**
- * Type guard for an inbound BridgeMessage that is specifically a
- * REQUEST_OBSERVATION with a validated ObservationPayload.
- * Used in the content script to safely destructure the payload.
- */
 export function isObservationMessage(
   data: unknown
 ): data is BridgeMessage & { type: 'REQUEST_OBSERVATION'; payload: ObservationPayload } {
@@ -77,12 +71,15 @@ export function isObservationMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Runtime message validators (chrome.runtime.sendMessage channel)
+// Runtime message validators
 // ---------------------------------------------------------------------------
 
 const VALID_RUNTIME_TYPES: ReadonlySet<RuntimeMessageType> = new Set([
   'GET_CURRENT_RUN',
   'CURRENT_RUN_RESPONSE',
+  'CREATE_RUN',
+  'CREATE_RUN_RESPONSE',
+  'RUN_STATE_UPDATE',
 ]);
 
 function isRuntimeMessageBase(data: unknown): data is { type: RuntimeMessageType } {
@@ -100,4 +97,29 @@ export function isGetCurrentRunMessage(data: unknown): data is GetCurrentRunMess
 
 export function isCurrentRunResponseMessage(data: unknown): data is CurrentRunResponseMessage {
   return isRuntimeMessageBase(data) && (data as CurrentRunResponseMessage).type === 'CURRENT_RUN_RESPONSE';
+}
+
+/**
+ * Validates an inbound CREATE_RUN message from the popup.
+ * Checks the ExperimentDefinition has the minimum required fields so the
+ * SW never passes a malformed definition to the RunCoordinator.
+ */
+export function isCreateRunMessage(data: unknown): data is CreateRunMessage {
+  if (!isRuntimeMessageBase(data)) return false;
+  if ((data as CreateRunMessage).type !== 'CREATE_RUN') return false;
+  const msg = data as Record<string, unknown>;
+  const def = msg.definition as Record<string, unknown> | undefined;
+  if (typeof def !== 'object' || def === null) return false;
+  if (typeof def.id !== 'string' || def.id.length === 0) return false;
+  if (typeof def.kind !== 'string' || def.kind.length === 0) return false;
+  if (typeof def.name !== 'string' || def.name.length === 0) return false;
+  return true;
+}
+
+export function isCreateRunResponseMessage(data: unknown): data is CreateRunResponseMessage {
+  return isRuntimeMessageBase(data) && (data as CreateRunResponseMessage).type === 'CREATE_RUN_RESPONSE';
+}
+
+export function isRunStateUpdateMessage(data: unknown): data is RunStateUpdateMessage {
+  return isRuntimeMessageBase(data) && (data as RunStateUpdateMessage).type === 'RUN_STATE_UPDATE';
 }

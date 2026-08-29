@@ -2,46 +2,45 @@
  * service-worker.ts — MV3 background service worker for HAVOC.
  *
  * Startup order:
- *  1. onMessage listener registered synchronously (Chrome queues messages
- *     during async startup; registration must be sync).
- *  2. rehydrate() + openDatabase() run in parallel — IndexedDB is not needed
- *     to answer GET_CURRENT_RUN or to log observations.
+ *  1. onMessage listener registered synchronously.
+ *  2. rehydrate() + openDatabase() in parallel.
  *
- * Phase 2 additions:
- *  - Handles REQUEST_OBSERVATION messages forwarded from the content script.
- *  - Maintains a per-runId sequence counter (Map<runId, number>) so events
- *    carry a monotonic sequence number even across SW suspensions within the
- *    same session (counter lives in memory; for cross-suspension monotonicity
- *    the counter will move to chrome.storage.session in a later phase).
- *  - Constructs a HavocEvent from each validated observation and logs it.
- *    No IndexedDB writes yet — that is Phase 7.
+ * Phase 3 additions:
+ *  - Handles CREATE_RUN: resolves the active tab when no explicit target is
+ *    supplied, delegates to RunCoordinator.startRun(), returns the initial run
+ *    as CREATE_RUN_RESPONSE immediately (coordinator drives the rest async).
+ *  - Sequence counters now keyed on real runIds from the RunCoordinator;
+ *    DEBUG_RUN_ID fallback only used for observations that arrive outside any
+ *    active run (e.g. background tabs during development).
  */
 
 import {
   createBridgeMessage,
   createCurrentRunResponseMessage,
+  createCreateRunResponseMessage,
   type ObservationPayload,
 } from '../messaging/messages';
 import {
   isBridgeMessage,
   isGetCurrentRunMessage,
   isObservationMessage,
+  isCreateRunMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { rehydrate, getCurrentRun } from './state';
+import { startRun } from './engine/run-coordinator';
 import type { HavocEvent } from '../domain/event';
+import type { Target } from '../domain/target';
 
 console.log('[HAVOC][SW] service worker booted');
 
-// Keep the SW alive long enough to handle the first message after install/update.
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[HAVOC][SW] installed/updated:', details.reason);
 });
 
 // ---------------------------------------------------------------------------
-// Sequence counter — per runId, monotonically increasing within one SW
-// activation.  Key: runId, Value: last sequence number assigned.
-// Phase 2 uses a fixed placeholder runId until the experiment engine exists.
+// Per-run sequence counters (in-memory, keyed by runId).
+// Falls back to a stable placeholder only when no run is active.
 // ---------------------------------------------------------------------------
 const DEBUG_RUN_ID = 'debug-run' as const;
 const _sequenceCounters = new Map<string, number>();
@@ -57,8 +56,6 @@ function nextSequence(runId: string): number {
 // Build a HavocEvent from a validated ObservationPayload.
 // ---------------------------------------------------------------------------
 function observationToEvent(obs: ObservationPayload, runId: string): HavocEvent {
-  // Map the three-way outcome distinction to distinct HavocEvent type strings
-  // so downstream consumers (Signal Engine, Phase 5+) can switch on them.
   const typeMap: Record<ObservationPayload['outcome'], string> = {
     success:           'REQUEST_COMPLETED',
     http_failure:      'REQUEST_HTTP_FAILURE',
@@ -86,20 +83,89 @@ function observationToEvent(obs: ObservationPayload, runId: string): HavocEvent 
 }
 
 // ---------------------------------------------------------------------------
+// Resolve the active tab for CREATE_RUN when no explicit target is provided.
+// ---------------------------------------------------------------------------
+async function resolveActiveTab(): Promise<Target | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || tab.id === undefined || !tab.url) return null;
+
+  let origin: string;
+  try {
+    origin = new URL(tab.url).origin;
+  } catch {
+    return null;
+  }
+
+  return {
+    tabId: tab.id,
+    origin,
+    url: tab.url,
+    frameId: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Message listener — registered synchronously.
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  // --- CREATE_RUN (popup → SW) ---
+  if (isCreateRunMessage(message)) {
+    (async () => {
+      try {
+        // Resolve target: use explicit target if provided, otherwise the
+        // currently active tab at the moment the popup sends CREATE_RUN.
+        let target: Target | null = message.target ?? null;
+        if (target === null) {
+          target = await resolveActiveTab();
+        }
+
+        if (target === null) {
+          sendResponse(createCreateRunResponseMessage(
+            undefined,
+            'Could not resolve a target tab — open a web page first'
+          ));
+          return;
+        }
+
+        // startRun is async and drives the full lifecycle. We respond
+        // immediately with the initial run state (CREATED) so the popup
+        // doesn't block. The coordinator broadcasts RUN_STATE_UPDATE on
+        // every subsequent transition.
+        const runPromise = startRun(message.definition, target);
+
+        // The run is checkpointed synchronously to session storage in
+        // CREATED state before startRun's first await resolves — so
+        // getCurrentRun() is safe to call here.
+        // We wait one microtask tick to let the CREATED checkpoint land.
+        await Promise.resolve();
+
+        const initialRun = getCurrentRun();
+        sendResponse(createCreateRunResponseMessage(initialRun ?? undefined));
+
+        // Let the lifecycle complete in the background.
+        runPromise.catch((err: unknown) => {
+          console.error('[HAVOC][SW] startRun error:', err);
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        sendResponse(createCreateRunResponseMessage(undefined, msg));
+      }
+    })();
+    return true; // async response
+  }
+
   // --- REQUEST_OBSERVATION (page → content → SW) ---
   if (isObservationMessage(message)) {
+    // Use the real runId if a run is active; fall back to debug placeholder.
     const runId = getCurrentRun()?.runId ?? DEBUG_RUN_ID;
     const event = observationToEvent(message.payload, runId);
     console.log(
       `[HAVOC][SW] event #${event.sequence} ${event.type}`,
       event.resource,
-      `(${(event.metadata?.status as number)}`,
+      `(${event.metadata?.status as number}`,
       `${(event.metadata?.duration as number).toFixed(1)}ms)`
     );
-    // Phase 7 will persist to IndexedDB here.
     sendResponse(null);
     return true;
   }

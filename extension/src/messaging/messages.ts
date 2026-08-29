@@ -1,4 +1,6 @@
-import type { ExperimentRun } from '../domain/run';
+import type { ExperimentRun, ExperimentState } from '../domain/run';
+import type { ExperimentDefinition } from '../domain/experiment';
+import type { Target } from '../domain/target';
 
 export const HAVOC_NAMESPACE = 'havoc' as const;
 export const BRIDGE_PROTOCOL_VERSION = 1 as const;
@@ -9,8 +11,6 @@ export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 
 /**
  * Messages that travel over the page ↔ content-script bridge (postMessage).
- * REQUEST_OBSERVATION carries a network observation from the instrumented page
- * world up to the content script, which re-validates and forwards it to the SW.
  */
 export type BridgeMessageType =
   | 'BRIDGE_HELLO'
@@ -19,48 +19,31 @@ export type BridgeMessageType =
   | 'REQUEST_OBSERVATION';
 
 /** Messages that travel over the popup ↔ service-worker channel (chrome.runtime). */
-export type RuntimeMessageType = 'GET_CURRENT_RUN' | 'CURRENT_RUN_RESPONSE';
+export type RuntimeMessageType =
+  | 'GET_CURRENT_RUN'
+  | 'CURRENT_RUN_RESPONSE'
+  | 'CREATE_RUN'
+  | 'CREATE_RUN_RESPONSE'
+  | 'RUN_STATE_UPDATE';
 
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
 // ---------------------------------------------------------------------------
-// Observation payload — the structured data carried in REQUEST_OBSERVATION.
+// Observation payload
 // ---------------------------------------------------------------------------
 
-/**
- * Three distinct outcomes, never collapsed into each other:
- *
- *  - transport_failure  fetch() Promise rejected / XHR error event
- *                       (DNS failure, connection refused, CORS block, etc.)
- *  - http_failure       Promise resolved but response.ok === false (4xx / 5xx)
- *  - timeout            XHR ontimeout fired, or fetch AbortController timeout
- *                       (stubbed for fetch in Phase 2; real detection in Phase 4)
- *  - success            response.ok === true / XHR load with 2xx status
- */
 export type ObservationOutcome = 'success' | 'transport_failure' | 'http_failure' | 'timeout';
-
-/** The transport mechanism that produced this observation. */
 export type ObservationTransport = 'fetch' | 'xhr';
 
 export interface ObservationPayload {
-  /** Stable UUID generated at instrumentation time, used as correlationId in HavocEvent. */
   observationId: string;
   transport: ObservationTransport;
   outcome: ObservationOutcome;
-  /** The URL passed to fetch() or xhr.open(). */
   url: string;
-  /** HTTP method in upper-case, e.g. "GET". */
   method: string;
-  /**
-   * HTTP status code. 0 for transport failures (no response received).
-   * Carried as a number so the SW can inspect it without parsing strings.
-   */
   status: number;
-  /** High-resolution timestamp (ms since page load, via performance.now()). */
   startTime: number;
-  /** Duration from request start to observation, in ms. */
   duration: number;
-  /** Human-readable error message for transport_failure / timeout cases. */
   errorMessage?: string;
 }
 
@@ -87,10 +70,7 @@ export function createBridgeMessage(
   };
 }
 
-/** Typed convenience constructor for REQUEST_OBSERVATION messages. */
 export function createObservationMessage(obs: ObservationPayload): BridgeMessage {
-  // ObservationPayload satisfies Record<string, unknown> after cast — we spread
-  // it into payload so it travels over the existing BridgeMessage pipeline.
   return createBridgeMessage('REQUEST_OBSERVATION', obs as unknown as Record<string, unknown>);
 }
 
@@ -104,15 +84,12 @@ export interface RuntimeMessage {
   type: RuntimeMessageType;
 }
 
-/** Popup → SW: ask for the current run snapshot. */
+// --- GET_CURRENT_RUN ---
+
 export interface GetCurrentRunMessage extends RuntimeMessage {
   type: 'GET_CURRENT_RUN';
 }
 
-/**
- * SW → Popup: answer to GET_CURRENT_RUN.
- * `run` is null when no experiment is active.
- */
 export interface CurrentRunResponseMessage extends RuntimeMessage {
   type: 'CURRENT_RUN_RESPONSE';
   run: ExperimentRun | null;
@@ -125,10 +102,81 @@ export function createGetCurrentRunMessage(): GetCurrentRunMessage {
 export function createCurrentRunResponseMessage(
   run: ExperimentRun | null
 ): CurrentRunResponseMessage {
+  return { namespace: HAVOC_NAMESPACE, version: BRIDGE_PROTOCOL_VERSION, type: 'CURRENT_RUN_RESPONSE', run };
+}
+
+// --- CREATE_RUN ---
+
+/**
+ * Popup → SW: request to start a new experiment run.
+ * The SW resolves the active tab automatically; the popup only needs to supply
+ * the ExperimentDefinition. The Target is filled in by the SW from the sender's
+ * tab context or the currently active tab.
+ */
+export interface CreateRunMessage extends RuntimeMessage {
+  type: 'CREATE_RUN';
+  definition: ExperimentDefinition;
+  /** Optional: explicit target. If omitted the SW uses the currently active tab. */
+  target?: Target;
+}
+
+export interface CreateRunResponseMessage extends RuntimeMessage {
+  type: 'CREATE_RUN_RESPONSE';
+  /** The newly created run on success. */
+  run?: ExperimentRun;
+  /** Human-readable error if the run could not be created. */
+  error?: string;
+}
+
+export function createCreateRunMessage(
+  definition: ExperimentDefinition,
+  target?: Target
+): CreateRunMessage {
   return {
     namespace: HAVOC_NAMESPACE,
     version: BRIDGE_PROTOCOL_VERSION,
-    type: 'CURRENT_RUN_RESPONSE',
+    type: 'CREATE_RUN',
+    definition,
+    ...(target !== undefined && { target }),
+  };
+}
+
+export function createCreateRunResponseMessage(
+  run: ExperimentRun | undefined,
+  error?: string
+): CreateRunResponseMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'CREATE_RUN_RESPONSE',
+    ...(run !== undefined && { run }),
+    ...(error !== undefined && { error }),
+  };
+}
+
+// --- RUN_STATE_UPDATE (SW → popup push notification) ---
+
+/**
+ * SW → popup: notifies the popup that the current run changed state.
+ * Sent as a broadcast via chrome.runtime.sendMessage so the popup can
+ * update its display without polling.
+ */
+export interface RunStateUpdateMessage extends RuntimeMessage {
+  type: 'RUN_STATE_UPDATE';
+  run: ExperimentRun | null;
+  /** The previous state, for UI transition animations. */
+  previousState: ExperimentState | null;
+}
+
+export function createRunStateUpdateMessage(
+  run: ExperimentRun | null,
+  previousState: ExperimentState | null
+): RunStateUpdateMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'RUN_STATE_UPDATE',
     run,
+    previousState,
   };
 }
