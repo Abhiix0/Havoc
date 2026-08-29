@@ -26,11 +26,12 @@ import {
   isObservationMessage,
   isCreateRunMessage,
   isDomObservationMessage,
+  isAbortRunMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { saveEvent, saveSignals } from '../storage/repository';
 import { rehydrate, getCurrentRun } from './state';
-import { startRun, nextSequence } from './engine/run-coordinator';
+import { startRun, abortRun, nextSequence } from './engine/run-coordinator';
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
@@ -224,6 +225,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (isGetCurrentRunMessage(message)) {
     console.log('[HAVOC][SW] GET_CURRENT_RUN from', sender.tab?.id ?? 'popup');
     sendResponse(createCurrentRunResponseMessage(getCurrentRun()));
+    return true;
+  }
+
+  // --- ABORT_RUN (popup → SW) ---
+  if (isAbortRunMessage(message)) {
+    console.log('[HAVOC][SW] ABORT_RUN from', sender.tab?.id ?? 'popup');
+    abortRun()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
 

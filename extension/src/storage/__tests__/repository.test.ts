@@ -45,7 +45,7 @@ describe('HAVOC Storage Repository', () => {
     const run: ExperimentRun = {
       runId: 'run-1',
       target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com/app', frameId: 0 },
-      definition: { id: 'exp-1', name: 'Latency Test', kind: 'fetch_latency', params: { delayMs: 1000 } },
+      definition: { id: 'exp-1', name: 'Latency Test', description: 'Test latency', kind: 'fetch_latency', params: { delayMs: 1000 } },
       state: 'CREATED',
       createdAt: 1000,
       updatedAt: 1000,
@@ -97,8 +97,8 @@ describe('HAVOC Storage Repository', () => {
 
     const run1Events = await getEventsByRunId('run-1');
     expect(run1Events).toHaveLength(2);
-    expect(run1Events[0].id).toBe('e2'); // sequence 1
-    expect(run1Events[1].id).toBe('e1'); // sequence 2
+    expect(run1Events[0]?.id).toBe('e2'); // sequence 1
+    expect(run1Events[1]?.id).toBe('e1'); // sequence 2
   });
 
   it('saves and retrieves signals by runId', async () => {
@@ -188,7 +188,7 @@ describe('HAVOC Storage Repository', () => {
     const run1: ExperimentRun = {
       runId: 'run-1',
       target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
-      definition: { id: 'exp-1', name: 'Failure Test', kind: 'fetch_failure', params: {} },
+      definition: { id: 'exp-1', name: 'Failure Test', description: 'Test failure', kind: 'fetch_failure', params: {} },
       state: 'COMPLETED',
       createdAt: 1000,
       updatedAt: 2000,
@@ -203,7 +203,7 @@ describe('HAVOC Storage Repository', () => {
     const run2: ExperimentRun = {
       runId: 'run-2',
       target: { tabId: 2, origin: 'https://example.org', url: 'https://example.org', frameId: 0 },
-      definition: { id: 'exp-2', name: 'Latency Test', kind: 'fetch_latency', params: {} },
+      definition: { id: 'exp-2', name: 'Latency Test', description: 'Test latency', kind: 'fetch_latency', params: {} },
       state: 'COMPLETED',
       createdAt: 3000,
       updatedAt: 4000,
@@ -247,7 +247,7 @@ describe('HAVOC Storage Repository', () => {
       await saveRun({
         runId,
         target: { tabId: i, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
-        definition: { id: `exp-${i}`, name: `Exp ${i}`, kind: 'fetch_latency', params: {} },
+        definition: { id: `exp-${i}`, name: `Exp ${i}`, description: `Exp ${i} description`, kind: 'fetch_latency', params: {} },
         state: 'COMPLETED',
         createdAt: timestamp,
         updatedAt: timestamp,

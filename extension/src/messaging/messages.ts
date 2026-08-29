@@ -35,7 +35,8 @@ export type RuntimeMessageType =
   | 'CURRENT_RUN_RESPONSE'
   | 'CREATE_RUN'
   | 'CREATE_RUN_RESPONSE'
-  | 'RUN_STATE_UPDATE';
+  | 'RUN_STATE_UPDATE'
+  | 'ABORT_RUN';
 
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
@@ -293,5 +294,17 @@ export function createRunStateUpdateMessage(
     type: 'RUN_STATE_UPDATE',
     run,
     previousState,
+  };
+}
+
+export interface AbortRunMessage extends RuntimeMessage {
+  type: 'ABORT_RUN';
+}
+
+export function createAbortRunMessage(): AbortRunMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'ABORT_RUN',
   };
 }
