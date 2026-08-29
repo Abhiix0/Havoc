@@ -1,5 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import type { ExperimentKind } from '../../../domain/experiment';
+
+  export let selectedKind: ExperimentKind | string = 'fetch_latency';
 
   const dispatch = createEventDispatcher<{
     navigate: string;
@@ -9,11 +12,14 @@
 <div class="screen-wrap">
   <header class="screen-header">
     <button class="back-btn" on:click={() => dispatch('navigate', 'select')}>← BACK</button>
-    <span class="screen-title">CONFIGURE PARAMETERS</span>
+    <div class="header-titles">
+      <span class="screen-title">CONFIGURE {selectedKind.toUpperCase()}</span>
+      <span class="screen-step">STEP 2/2</span>
+    </div>
   </header>
 
   <div class="screen-body">
-    <p class="placeholder-text">Configure Screen [Phase 4]</p>
+    <p class="placeholder-text">Configure Screen for <code>{selectedKind}</code> [Phase 4]</p>
   </div>
 </div>
 
@@ -32,7 +38,7 @@
   .screen-header {
     display: flex;
     align-items: center;
-    gap: var(--space-3, 12px);
+    justify-content: space-between;
     padding-bottom: var(--space-2, 8px);
     border-bottom: 1px solid var(--border, #2A2B30);
   }
@@ -51,11 +57,27 @@
     color: var(--text-primary, #F2F2F0);
   }
 
+  .header-titles {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+  }
+
   .screen-title {
     font-size: var(--text-sm, 12px);
     font-weight: 700;
     color: var(--text-primary, #F2F2F0);
     letter-spacing: 0.5px;
+  }
+
+  .screen-step {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 10px;
+    color: var(--text-muted, #8A8B90);
+    background: var(--bg-surface, #16171A);
+    border: 1px solid var(--border, #2A2B30);
+    border-radius: var(--radius-sm, 4px);
+    padding: 1px 5px;
   }
 
   .screen-body {
@@ -66,5 +88,9 @@
     font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
     font-size: var(--text-xs, 11px);
     color: var(--text-muted, #8A8B90);
+  }
+
+  code {
+    color: var(--havoc-red, #E85C4A);
   }
 </style>

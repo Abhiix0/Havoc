@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { ExperimentKind } from '../domain/experiment';
   import { isRunActive, setupRunStore } from './lib/stores/run';
   import HomeScreen from './lib/screens/HomeScreen.svelte';
-  import SelectChaosScreen from './lib/screens/SelectChaosScreen.svelte';
+  import ExperimentSelectScreen from './lib/screens/ExperimentSelectScreen.svelte';
   import ConfigureScreen from './lib/screens/ConfigureScreen.svelte';
   import ActiveChaosScreen from './lib/screens/ActiveChaosScreen.svelte';
   import AutopsyScreen from './lib/screens/AutopsyScreen.svelte';
@@ -10,6 +11,7 @@
 
   type Screen = 'home' | 'select' | 'configure' | 'active' | 'autopsy' | 'history';
   let currentScreen: Screen = 'home';
+  let selectedKind: ExperimentKind = 'fetch_latency';
 
   onMount(() => {
     const cleanup = setupRunStore();
@@ -23,8 +25,17 @@
     }
   }
 
-  function handleNavigate(target: string) {
-    currentScreen = target as Screen;
+  function handleNavigate(detail: any) {
+    if (typeof detail === 'string') {
+      currentScreen = detail as Screen;
+    } else if (typeof detail === 'object' && detail !== null) {
+      if (detail.screen) {
+        currentScreen = detail.screen as Screen;
+      }
+      if (detail.kind) {
+        selectedKind = detail.kind as ExperimentKind;
+      }
+    }
   }
 </script>
 
@@ -32,9 +43,15 @@
   {#if currentScreen === 'home'}
     <HomeScreen on:navigate={(e) => handleNavigate(e.detail)} />
   {:else if currentScreen === 'select'}
-    <SelectChaosScreen on:navigate={(e) => handleNavigate(e.detail)} />
+    <ExperimentSelectScreen
+      {selectedKind}
+      on:navigate={(e) => handleNavigate(e.detail)}
+    />
   {:else if currentScreen === 'configure'}
-    <ConfigureScreen on:navigate={(e) => handleNavigate(e.detail)} />
+    <ConfigureScreen
+      {selectedKind}
+      on:navigate={(e) => handleNavigate(e.detail)}
+    />
   {:else if currentScreen === 'active'}
     <ActiveChaosScreen on:navigate={(e) => handleNavigate(e.detail)} />
   {:else if currentScreen === 'autopsy'}
