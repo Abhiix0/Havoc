@@ -9,25 +9,28 @@
     | 'success'
     | 'failure' = 'idle';
 
-  $: isAnimated = state === 'idle' || state === 'ready';
+  $: isIdleOrReady = state === 'idle' || state === 'ready';
+
   $: eyeColor =
     state === 'chaos' || state === 'failure'
       ? 'var(--havoc-red, #E85C4A)'
-      : state === 'recovering' || state === 'ready'
+      : state === 'recovering' || state === 'ready' || state === 'armed'
       ? 'var(--warn-amber, #F5C451)'
       : state === 'success'
       ? 'var(--recover-green, #4ADE80)'
       : 'var(--info-blue, #5B8FD8)';
 
   $: antennaColor =
-    state === 'chaos' || state === 'armed'
+    state === 'chaos' || state === 'failure'
       ? 'var(--havoc-red, #E85C4A)'
-      : state === 'running'
+      : state === 'running' || state === 'armed'
       ? 'var(--warn-amber, #F5C451)'
+      : state === 'success'
+      ? 'var(--recover-green, #4ADE80)'
       : 'var(--text-muted, #8A8B90)';
 </script>
 
-<div class="robot-wrap robot-{state}" class:animated={isAnimated}>
+<div class="robot-wrap robot-{state}" class:animated-idle={isIdleOrReady}>
   <svg
     width="96"
     height="108"
@@ -39,7 +42,7 @@
     <!-- Shadow -->
     <ellipse cx="48" cy="100" rx="28" ry="4" fill="rgba(0, 0, 0, 0.4)" />
 
-    <!-- Robot Rig for Breathing -->
+    <!-- Robot Rig -->
     <g class="robot-rig">
       <!-- Antenna -->
       <line x1="48" y1="12" x2="48" y2="24" stroke="#3A3C45" stroke-width="3" stroke-linecap="round" />
@@ -55,7 +58,7 @@
       <!-- Visor Screen -->
       <rect x="29" y="31" width="38" height="20" rx="3" fill="#0C0D0F" stroke="#1E2026" stroke-width="1.5" />
 
-      <!-- Eyes Group for Blinking -->
+      <!-- Eyes Group -->
       <g class="robot-eyes" style="transform-origin: 48px 41px;">
         <rect x="35" y="37" width="8" height="8" rx="2" fill={eyeColor} />
         <rect x="53" y="37" width="8" height="8" rx="2" fill={eyeColor} />
@@ -74,7 +77,7 @@
       <rect x="34" y="68" width="28" height="14" rx="2" fill="#16171D" stroke="#2B2D36" stroke-width="1" />
       <line x1="38" y1="72" x2="58" y2="72" stroke="#3A3C45" stroke-width="1.5" stroke-linecap="round" />
       <line x1="38" y1="76" x2="52" y2="76" stroke="#3A3C45" stroke-width="1.5" stroke-linecap="round" />
-      <circle cx="56" cy="76" r="1.5" fill="var(--havoc-red, #E85C4A)" />
+      <circle cx="56" cy="76" r="1.5" fill={state === 'chaos' ? 'var(--havoc-red, #E85C4A)' : 'var(--warn-amber, #F5C451)'} class="chest-led" />
 
       <!-- Left Arm -->
       <g class="robot-arm-left">
@@ -112,33 +115,81 @@
     overflow: visible;
   }
 
-  .animated .robot-rig {
+  /* Idle / Ready state */
+  .animated-idle .robot-rig {
     animation: robot-breathe 4s ease-in-out infinite;
     transform-origin: 48px 94px;
   }
-
-  .animated .robot-eyes {
+  .animated-idle .robot-eyes {
     animation: robot-blink 4.8s infinite;
   }
 
+  /* Armed state */
+  .robot-armed .robot-rig {
+    animation: robot-pulse 1.2s ease-in-out infinite;
+    transform-origin: 48px 94px;
+  }
+  .robot-armed .antenna-bulb {
+    animation: antenna-pulse 0.8s ease-in-out infinite;
+  }
+
+  /* Chaos state */
+  .robot-chaos .robot-rig {
+    animation: robot-jitter 0.18s linear infinite;
+    transform-origin: 48px 94px;
+  }
+  .robot-chaos .antenna-bulb {
+    animation: antenna-flash 0.3s linear infinite;
+  }
+  .robot-chaos .chest-led {
+    animation: antenna-flash 0.2s linear infinite;
+  }
+
+  /* Running / Cleaning / Evaluating state */
+  .robot-running .robot-rig {
+    animation: robot-running 1.6s ease-in-out infinite;
+    transform-origin: 48px 94px;
+  }
+  .robot-running .antenna-bulb {
+    animation: antenna-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* Keyframe Animations */
   @keyframes robot-breathe {
-    0%,
-    100% {
-      transform: translateY(0) scale(1);
-    }
-    50% {
-      transform: translateY(-2px) scale(1.02);
-    }
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-2px) scale(1.02); }
   }
 
   @keyframes robot-blink {
-    0%,
-    92%,
-    100% {
-      transform: scaleY(1);
-    }
-    95% {
-      transform: scaleY(0.1);
-    }
+    0%, 92%, 100% { transform: scaleY(1); }
+    95% { transform: scaleY(0.1); }
+  }
+
+  @keyframes robot-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.03); }
+  }
+
+  @keyframes robot-jitter {
+    0% { transform: translate(0, 0); }
+    25% { transform: translate(-1px, 0.8px); }
+    50% { transform: translate(1px, -0.5px); }
+    75% { transform: translate(-0.8px, -0.8px); }
+    100% { transform: translate(0, 0); }
+  }
+
+  @keyframes robot-running {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-1.5px); }
+  }
+
+  @keyframes antenna-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+
+  @keyframes antenna-flash {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
   }
 </style>
