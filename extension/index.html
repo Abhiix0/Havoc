@@ -1,26 +1,61 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Press+Start+2P&display=swap"
+    rel="stylesheet">
+  <title>HAVOC</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
     body {
       margin: 0;
-      width: 460px;
-      min-height: 580px;
+      padding: 0;
       background: #0a0a0a;
+    }
+
+    body {
+      width: 480px;
       color: #e5e5e5;
       font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
+
+    /* Popup-wide scrollbar styling — matches the lab-deck aesthetic
+       instead of the default browser scrollbar. */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0d0d0d;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #2a2f2a;
+      border: 1px solid #444b44;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #444b44;
+    }
   </style>
 </head>
+
 <body>
   <div id="app"></div>
   <script type="module" src="/src/popup/main.ts"></script>
 </body>
+
 </html>
