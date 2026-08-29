@@ -319,10 +319,9 @@
   }
 </script>
 
-<div class="crt-frame">
-  <!-- Scanline & Vignette Overlays -->
-  <div class="scanlines" />
-  <div class="crt-vignette" />
+<div class="lab-frame">
+  <!-- Background Grid Texture -->
+  <div class="grid-texture" />
 
   <!-- Main Container -->
   <main class="console-body">
@@ -330,25 +329,25 @@
     <header class="console-header">
       <div class="title-row">
         <div class="brand">
-          <span class="brand-glitch">HAVOC</span>
-          <span class="sub-brand">// DIAGNOSTIC CONSOLE v1.0</span>
+          <span class="brand-logo">HAVOC</span>
+          <span class="brand-tag">[v1.0 LAB-DECK]</span>
         </div>
         <div class="status-indicator">
           {#if isRunActive}
             <span class="badge badge-active blink">● ACTIVE [{currentRun?.state}]</span>
           {:else if currentRun?.state === 'COMPLETED'}
-            <span class="badge badge-completed">✓ IDLE [COMPLETED]</span>
+            <span class="badge badge-completed">■ COMPLETED</span>
           {:else if currentRun && TERMINAL_STATES.has(currentRun.state)}
-            <span class="badge badge-terminal">▲ IDLE [{currentRun.state}]</span>
+            <span class="badge badge-terminal">✖ {currentRun.state}</span>
           {:else}
-            <span class="badge badge-standby">STANDBY</span>
+            <span class="badge badge-standby">□ STANDBY</span>
           {/if}
         </div>
       </div>
 
       <!-- Target Inspector Strip -->
       <div class="target-strip">
-        <span class="label">[TARGET]</span>
+        <span class="target-label">[TARGET]</span>
         {#if activeTab}
           <span class="target-chip tab-id">TAB #{activeTab.tabId}</span>
           <span class="target-origin" title={activeTab.url}>{activeTab.origin}</span>
@@ -446,8 +445,13 @@
         <div class="timeline-view">
           {#if events.length === 0}
             <div class="empty-state">
+              <div class="pixel-radar">
+                <span class="radar-ring" />
+                <span class="radar-sweep" />
+                <span class="radar-blip" />
+              </div>
               <span class="empty-prompt">&gt; Awaiting observation telemetry...</span>
-              <span class="empty-sub">Trigger an experiment to observe network and DOM mutations.</span>
+              <span class="empty-sub">Trigger chaos injection to observe network and DOM mutations.</span>
             </div>
           {:else}
             <div class="event-list">
@@ -505,6 +509,11 @@
         <div class="signals-view">
           {#if signals.length === 0}
             <div class="empty-state">
+              <div class="pixel-radar">
+                <span class="radar-ring" />
+                <span class="radar-sweep" />
+                <span class="radar-blip" />
+              </div>
               <span class="empty-prompt">&gt; No derived signals generated.</span>
               <span class="empty-sub">Signals correlate observed telemetry with causal chaos events.</span>
             </div>
@@ -541,6 +550,11 @@
         <div class="autopsy-view">
           {#if !recovery}
             <div class="empty-state">
+              <div class="pixel-radar">
+                <span class="radar-ring" />
+                <span class="radar-sweep" />
+                <span class="radar-blip" />
+              </div>
               <span class="empty-prompt">&gt; Recovery autopsy pending.</span>
               <span class="empty-sub">Autopsy generates post-chaos evaluation findings upon run completion.</span>
             </div>
@@ -561,7 +575,7 @@
               <!-- Findings Section -->
               {#if findings.length === 0}
                 <div class="no-finding-box">
-                  <span class="nf-icon">✓</span>
+                  <span class="nf-icon">■</span>
                   <span class="nf-text">
                     {#if recovery.outcome === 'RECOVERED'}
                       RESILIENT: Application retried and recovered successfully.
@@ -750,17 +764,17 @@
       {/if}
     </div>
 
-    <!-- Action Bar -->
+    <!-- Action Bar (The INITIATE HAVOC Moment) -->
     <footer class="action-footer">
       {#if isRunActive}
         <button class="btn-action btn-abort" on:click={handleAbortRun} disabled={aborting}>
-          <span class="btn-icon">⏹</span>
+          <span class="btn-icon">■</span>
           {aborting ? 'ABORTING...' : 'ABORT EXPERIMENT'}
         </button>
       {:else}
         <button class="btn-action btn-start" on:click={handleStartRun} disabled={!canStart}>
           <span class="btn-icon">▶</span>
-          {starting ? 'ARMING CHAOS...' : 'EXECUTE EXPERIMENT'}
+          {starting ? 'ARMING CHAOS...' : 'INITIATE HAVOC'}
         </button>
       {/if}
     </footer>
@@ -768,62 +782,31 @@
 </div>
 
 <style>
-  /* CRT Chassis, Vignette & Scanline effect */
-  .crt-frame {
+  /* Base Pixel-Lab Frame & Texture */
+  .lab-frame {
     position: relative;
-    width: 440px;
-    min-height: 560px;
-    background: #05070a;
-    color: #cbd5e1;
+    width: 460px;
+    min-height: 580px;
+    background: #0a0a0a;
+    color: #e5e5e5;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    animation: crt-flicker 0.18s infinite;
     font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
   }
 
-  @keyframes crt-flicker {
-    0% { opacity: 0.993; }
-    50% { opacity: 1; }
-    100% { opacity: 0.996; }
-  }
-
-  .scanlines {
+  .grid-texture {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
-    z-index: 100;
-    background: linear-gradient(
-      rgba(18, 16, 16, 0) 50%,
-      rgba(0, 0, 0, 0.35) 50%
-    ),
-    linear-gradient(
-      90deg,
-      rgba(255, 0, 0, 0.03),
-      rgba(0, 255, 0, 0.015),
-      rgba(0, 0, 255, 0.03)
-    );
-    background-size: 100% 2px, 3px 100%;
-  }
-
-  .crt-vignette {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 101;
-    background: radial-gradient(
-      circle at 50% 50%,
-      transparent 60%,
-      rgba(0, 0, 0, 0.4) 88%,
-      rgba(0, 0, 0, 0.75) 100%
-    );
-    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9);
+    z-index: 0;
+    background-image: 
+      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 16px 16px;
   }
 
   .console-body {
@@ -838,14 +821,13 @@
 
   /* Header */
   .console-header {
-    background: #090e17;
-    border: 1px solid #1e293b;
-    border-left: 3px solid #00f0ff;
+    background: #111411;
+    border: 2px solid #2a2f2a;
     padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.08);
+    box-shadow: 3px 3px 0 #000000;
   }
 
   .title-row {
@@ -860,18 +842,37 @@
     gap: 6px;
   }
 
-  .brand-glitch {
+  .brand-logo {
     font-family: 'Press Start 2P', monospace;
-    font-size: 11px;
-    letter-spacing: 1px;
-    color: #00f0ff;
-    text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: #f0c419;
+    animation: glitch-steps 4s steps(2) infinite;
   }
 
-  .sub-brand {
+  @keyframes glitch-steps {
+    0%, 93%, 100% {
+      text-shadow: 2px 2px 0 #000;
+      transform: translate(0, 0);
+    }
+    94% {
+      text-shadow: -2px 0 0 #ff3b3b, 2px 2px 0 #000;
+      transform: translate(-1px, 0);
+    }
+    96% {
+      text-shadow: 2px -1px 0 #00ff66, -2px 2px 0 #000;
+      transform: translate(1px, -1px);
+    }
+    98% {
+      text-shadow: 0 2px 0 #f0c419, 2px 2px 0 #000;
+      transform: translate(0, 1px);
+    }
+  }
+
+  .brand-tag {
     font-size: 9px;
     letter-spacing: 0.5px;
-    color: #94a3b8;
+    color: #8a948a;
   }
 
   .target-strip {
@@ -879,13 +880,13 @@
     align-items: center;
     gap: 6px;
     font-size: 10px;
-    background: #05080e;
+    background: #0d0d0d;
     padding: 4px 6px;
-    border: 1px solid #131e2e;
+    border: 2px solid #222622;
   }
 
-  .label {
-    color: #38bdf8;
+  .target-label {
+    color: #f0c419;
     font-weight: bold;
     font-size: 9px;
   }
@@ -893,119 +894,120 @@
   .target-chip {
     font-family: 'Press Start 2P', monospace;
     padding: 2px 4px;
-    border-radius: 2px;
     font-size: 7.5px;
-    background: #0284c7;
-    color: #fff;
+    background: #2a2f2a;
+    color: #e5e5e5;
+    border: 1px solid #444b44;
   }
 
   .target-chip.no-target {
-    background: #dc2626;
+    background: #450a0a;
+    border-color: #ff3b3b;
+    color: #ff3b3b;
   }
 
   .target-origin {
-    color: #cbd5e1;
+    color: #e5e5e5;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 250px;
+    max-width: 260px;
   }
 
   /* Badges */
   .badge {
     font-family: 'Press Start 2P', monospace;
     font-size: 7.5px;
-    padding: 3px 6px;
+    padding: 4px 6px;
     letter-spacing: 0.5px;
-    border-radius: 2px;
-    line-height: 1.3;
+    line-height: 1.2;
+    box-shadow: 2px 2px 0 #000;
+    border: 2px solid;
   }
   .badge-active {
-    background: #7c2d12;
-    color: #fed7aa;
-    border: 1px solid #ea580c;
-    text-shadow: 0 0 6px rgba(251, 146, 60, 0.7);
+    background: #2b2200;
+    color: #f0c419;
+    border-color: #f0c419;
   }
   .badge-completed {
-    background: #064e3b;
-    color: #86efac;
-    border: 1px solid #16a34a;
-    text-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+    background: #00260f;
+    color: #00ff66;
+    border-color: #00ff66;
   }
   .badge-terminal {
-    background: #450a0a;
-    color: #fca5a5;
-    border: 1px solid #dc2626;
+    background: #2b0000;
+    color: #ff3b3b;
+    border-color: #ff3b3b;
   }
   .badge-standby {
-    background: #1e293b;
-    color: #cbd5e1;
-    border: 1px solid #334155;
+    background: #141714;
+    color: #8a948a;
+    border-color: #2a2f2a;
   }
 
   .blink {
-    animation: blinker 1.2s infinite ease-in-out;
+    animation: blink-stepped 1s steps(2) infinite;
   }
-  @keyframes blinker {
+  @keyframes blink-stepped {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.25; }
   }
 
   .error-banner {
-    background: #450a0a;
-    border: 1px solid #dc2626;
-    color: #fecaca;
+    background: #2b0000;
+    border: 2px solid #ff3b3b;
+    color: #ff9999;
     padding: 5px 8px;
     font-size: 10px;
     display: flex;
     align-items: center;
     gap: 6px;
+    box-shadow: 2px 2px 0 #000;
   }
   .error-icon {
-    background: #dc2626;
-    color: #fff;
+    background: #ff3b3b;
+    color: #000;
     font-weight: bold;
     padding: 0 4px;
-    border-radius: 2px;
   }
 
-  /* Pipeline ribbon */
+  /* Pipeline State Ribbon */
   .pipeline-section {
-    background: #090e17;
-    border: 1px solid #1e293b;
+    background: #111411;
+    border: 2px solid #2a2f2a;
     padding: 6px 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    box-shadow: 3px 3px 0 #000;
   }
 
   .pipeline-header {
     display: flex;
     justify-content: space-between;
-    font-size: 8.5px;
-    color: #94a3b8;
-    letter-spacing: 0.5px;
+    font-size: 8px;
+    color: #8a948a;
   }
 
   .sec-label {
     font-family: 'Press Start 2P', monospace;
     font-size: 7px;
-    color: #94a3b8;
+    color: #8a948a;
   }
 
   .run-id-tag {
     font-family: 'Press Start 2P', monospace;
     font-size: 7px;
-    color: #38bdf8;
+    color: #f0c419;
   }
 
   .pipeline-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #04060a;
-    padding: 5px 6px;
-    border: 1px solid #131e2e;
+    background: #0d0d0d;
+    padding: 6px 8px;
+    border: 2px solid #222622;
     overflow-x: auto;
   }
 
@@ -1014,45 +1016,42 @@
     align-items: center;
     gap: 3px;
     font-size: 8.5px;
-    color: #64748b;
+    color: #555e55;
   }
   .node-glyph {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 8px;
+    font-size: 8.5px;
     line-height: 1;
   }
   .glyph-current {
-    color: #00f0ff;
-    text-shadow: 0 0 6px rgba(0, 240, 255, 0.85);
-    animation: pixel-pulse 0.9s infinite alternate ease-in-out;
+    color: #f0c419;
+    animation: pulse-step 0.8s steps(2) infinite;
   }
-  @keyframes pixel-pulse {
-    0% { transform: scale(0.9); opacity: 0.8; }
-    100% { transform: scale(1.18); opacity: 1; }
+  @keyframes pulse-step {
+    0%, 100% { transform: scale(1.2); opacity: 1; }
+    50% { transform: scale(0.9); opacity: 0.6; }
   }
   .glyph-past {
-    color: #22c55e;
+    color: #00ff66;
   }
   .glyph-failed {
-    color: #ef4444;
-    text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+    color: #ff3b3b;
   }
   .glyph-pending {
-    color: #475569;
+    color: #444b44;
   }
 
   .pipe-node.past {
-    color: #22c55e;
+    color: #00ff66;
   }
   .pipe-node.current {
-    color: #00f0ff;
+    color: #f0c419;
     font-weight: bold;
-    text-shadow: 0 0 4px rgba(0, 240, 255, 0.6);
   }
   .pipe-node.failed {
-    color: #ef4444;
+    color: #ff3b3b;
     font-weight: bold;
   }
   .node-num {
@@ -1066,40 +1065,40 @@
   .node-arrow {
     opacity: 0.4;
     margin-left: 2px;
-    color: #94a3b8;
+    color: #8a948a;
   }
 
-  /* Navigation */
+  /* Navigation Tabs */
   .console-nav {
     display: flex;
-    gap: 4px;
-    border-bottom: 1px solid #1e293b;
-    padding-bottom: 2px;
+    gap: 6px;
   }
 
   .nav-tab {
     flex: 1;
-    background: #090e17;
-    color: #94a3b8;
-    border: 1px solid #1e293b;
-    border-bottom: none;
+    background: #141714;
+    color: #8a948a;
+    border: 2px solid #2a2f2a;
     font-family: 'Press Start 2P', monospace;
-    font-size: 7.5px;
-    padding: 6px 2px;
+    font-size: 7px;
+    padding: 7px 2px;
     cursor: pointer;
     letter-spacing: 0.5px;
-    transition: all 0.12s;
+    box-shadow: 2px 2px 0 #000;
+    transition: all 0.08s steps(2);
     line-height: 1.2;
   }
   .nav-tab:hover {
-    background: #131e2e;
-    color: #f1f5f9;
+    background: #1d221d;
+    color: #e5e5e5;
+    border-color: #444b44;
   }
   .nav-tab.active {
-    background: #131e2e;
-    color: #00f0ff;
-    border-top: 2px solid #00f0ff;
-    text-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+    background: #1a1600;
+    color: #f0c419;
+    border-color: #f0c419;
+    box-shadow: 1px 1px 0 #000;
+    transform: translate(1px, 1px);
   }
 
   /* Viewport Area */
@@ -1107,12 +1106,14 @@
     flex: 1;
     min-height: 250px;
     max-height: 310px;
-    background: #080c14;
-    border: 1px solid #1e293b;
+    background: #0d0d0d;
+    border: 2px solid #2a2f2a;
     padding: 8px;
     overflow-y: auto;
+    box-shadow: 3px 3px 0 #000;
   }
 
+  /* Empty State with Pixel Radar Mascot */
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -1120,19 +1121,58 @@
     justify-content: center;
     height: 100%;
     min-height: 200px;
-    color: #94a3b8;
+    color: #8a948a;
     text-align: center;
-    gap: 6px;
+    gap: 8px;
   }
+
+  .pixel-radar {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    border: 2px solid #2a2f2a;
+    background: #050505;
+    box-shadow: 2px 2px 0 #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .radar-ring {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 1px dashed #444b44;
+  }
+  .radar-sweep {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background: #f0c419;
+    opacity: 0.6;
+    animation: radar-sweep 2s steps(8) infinite;
+  }
+  @keyframes radar-sweep {
+    0% { transform: translateY(-12px); }
+    50% { transform: translateY(12px); }
+    100% { transform: translateY(-12px); }
+  }
+  .radar-blip {
+    width: 4px;
+    height: 4px;
+    background: #00ff66;
+    box-shadow: 0 0 4px #00ff66;
+    animation: blink-stepped 1.5s steps(2) infinite;
+  }
+
   .empty-prompt {
     font-size: 11px;
-    color: #cbd5e1;
+    color: #e5e5e5;
     font-weight: bold;
   }
   .empty-sub {
     font-size: 9.5px;
-    color: #94a3b8;
-    max-width: 260px;
+    color: #8a948a;
+    max-width: 280px;
   }
 
   /* Timeline Stream */
@@ -1143,30 +1183,33 @@
   }
 
   .event-row {
-    background: #05080e;
-    border: 1px solid #15202e;
-    border-left: 3px solid #334155;
+    background: #111411;
+    border: 2px solid #222622;
+    border-left: 4px solid #444b44;
     padding: 6px 8px;
     font-size: 10px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    box-shadow: 2px 2px 0 #000;
   }
   .event-row.type-chaos_injected {
-    border-left-color: #f97316;
-    background: #140d06;
+    border-left-color: #f0c419;
+    background: #171404;
   }
   .event-row.type-request_transport_failure,
   .event-row.type-request_http_failure,
   .event-row.type-request_timeout {
-    border-left-color: #ef4444;
-    background: #150808;
+    border-left-color: #ff3b3b;
+    background: #170404;
   }
   .event-row.type-request_completed {
-    border-left-color: #22c55e;
+    border-left-color: #00ff66;
+    background: #041708;
   }
   .event-row.type-dom_observation {
-    border-left-color: #06b6d4;
+    border-left-color: #38bdf8;
+    background: #041217;
   }
 
   .evt-meta {
@@ -1175,59 +1218,59 @@
     gap: 6px;
   }
   .evt-seq {
-    color: #94a3b8;
+    color: #8a948a;
     font-weight: bold;
     font-size: 9px;
   }
   .evt-time {
-    color: #cbd5e1;
+    color: #e5e5e5;
     font-size: 9px;
   }
   .evt-badge {
     font-family: 'Press Start 2P', monospace;
-    font-size: 7px;
+    font-size: 6.5px;
     padding: 2px 4px;
-    border-radius: 2px;
-    background: #1e293b;
-    color: #e2e8f0;
+    border: 1px solid #333;
+    background: #141714;
+    color: #e5e5e5;
   }
-  .badge-chaos_injected { background: #7c2d12; color: #fed7aa; }
-  .badge-request_completed { background: #064e3b; color: #a7f3d0; }
+  .badge-chaos_injected { background: #2b2200; color: #f0c419; border-color: #f0c419; }
+  .badge-request_completed { background: #00260f; color: #00ff66; border-color: #00ff66; }
   .badge-request_transport_failure,
   .badge-request_http_failure,
-  .badge-request_timeout { background: #450a0a; color: #fecaca; }
-  .badge-dom_observation { background: #164e63; color: #a5f3fc; }
+  .badge-request_timeout { background: #2b0000; color: #ff3b3b; border-color: #ff3b3b; }
+  .badge-dom_observation { background: #041d29; color: #38bdf8; border-color: #38bdf8; }
 
   .evt-details {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    color: #cbd5e1;
+    color: #d1d5db;
   }
   .evt-resource {
-    color: #f1f5f9;
+    color: #ffffff;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 220px;
+    max-width: 240px;
   }
   .evt-dom-kind {
     color: #38bdf8;
     font-weight: bold;
   }
   .evt-selector {
-    color: #cbd5e1;
-    background: #0b111a;
+    color: #d1d5db;
+    background: #0a0a0a;
     padding: 0 4px;
-    border: 1px solid #1e293b;
-    max-width: 140px;
+    border: 1px solid #2a2f2a;
+    max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .evt-snippet {
-    color: #f8fafc;
+    color: #ffffff;
     font-style: italic;
     max-width: 160px;
     overflow: hidden;
@@ -1237,12 +1280,12 @@
   .evt-status {
     padding: 0 4px;
     font-weight: bold;
-    border-radius: 2px;
+    border: 1px solid;
   }
-  .evt-status.ok { color: #86efac; background: #064e3b; }
-  .evt-status.fail { color: #fca5a5; background: #450a0a; }
-  .evt-duration { color: #fbbf24; }
-  .evt-err-msg { color: #f87171; }
+  .evt-status.ok { color: #00ff66; background: #00260f; border-color: #00ff66; }
+  .evt-status.fail { color: #ff3b3b; background: #2b0000; border-color: #ff3b3b; }
+  .evt-duration { color: #f0c419; }
+  .evt-err-msg { color: #ff3b3b; }
 
   /* Signals View */
   .signals-list {
@@ -1251,22 +1294,23 @@
     gap: 6px;
   }
   .signal-card {
-    background: #05080e;
-    border: 1px solid #1e293b;
-    border-left: 3px solid #00f0ff;
+    background: #111411;
+    border: 2px solid #2a2f2a;
+    border-left: 4px solid #f0c419;
     padding: 6px 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    box-shadow: 2px 2px 0 #000;
   }
   .signal-card.type-requestfailureobserved {
-    border-left-color: #ef4444;
+    border-left-color: #ff3b3b;
   }
   .signal-card.type-loadingstatedetected {
-    border-left-color: #f59e0b;
+    border-left-color: #f0c419;
   }
   .signal-card.type-errorstatedetected {
-    border-left-color: #ec4899;
+    border-left-color: #ff3b3b;
   }
 
   .sig-header {
@@ -1277,28 +1321,26 @@
   .sig-type {
     font-size: 11px;
     font-weight: bold;
-    color: #f8fafc;
+    color: #ffffff;
   }
   .sig-conf-badge {
     font-family: 'Press Start 2P', monospace;
-    font-size: 7.5px;
-    color: #00f0ff;
-    background: #0c2033;
+    font-size: 7px;
+    color: #f0c419;
+    background: #1a1600;
     padding: 2px 5px;
-    border-radius: 2px;
-    border: 1px solid #0284c7;
+    border: 1px solid #f0c419;
   }
 
   .sig-meter {
     height: 4px;
-    background: #1e293b;
-    border-radius: 1px;
+    background: #1e241e;
+    border: 1px solid #2a2f2a;
     overflow: hidden;
   }
   .sig-meter-fill {
     height: 100%;
-    background: #00f0ff;
-    box-shadow: 0 0 6px rgba(0, 240, 255, 0.6);
+    background: #f0c419;
   }
 
   .sig-footer {
@@ -1306,13 +1348,13 @@
     align-items: center;
     gap: 6px;
     font-size: 9px;
-    color: #94a3b8;
+    color: #8a948a;
   }
   .ref-tag {
-    background: #131e2e;
-    color: #cbd5e1;
+    background: #1c211c;
+    color: #e5e5e5;
     padding: 0 4px;
-    border-radius: 2px;
+    border: 1px solid #2a2f2a;
   }
 
   /* Autopsy View */
@@ -1324,30 +1366,31 @@
 
   .outcome-banner {
     padding: 8px 10px;
-    border: 1px solid #1e293b;
+    border: 2px solid;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    box-shadow: 3px 3px 0 #000;
   }
   .outcome-recovered {
-    background: #064e3b;
-    border-color: #16a34a;
-    color: #86efac;
+    background: #00260f;
+    border-color: #00ff66;
+    color: #00ff66;
   }
   .outcome-degraded {
-    background: #451a03;
-    border-color: #d97706;
-    color: #fde68a;
+    background: #2b2200;
+    border-color: #f0c419;
+    color: #f0c419;
   }
   .outcome-failed {
-    background: #450a0a;
-    border-color: #dc2626;
-    color: #fca5a5;
+    background: #2b0000;
+    border-color: #ff3b3b;
+    color: #ff3b3b;
   }
   .outcome-unknown {
-    background: #082f49;
-    border-color: #0284c7;
-    color: #7dd3fc;
+    background: #041d29;
+    border-color: #38bdf8;
+    color: #38bdf8;
   }
 
   .outcome-title {
@@ -1371,37 +1414,39 @@
     flex-direction: column;
     text-align: right;
     font-size: 9.5px;
-    color: #f1f5f9;
+    color: #ffffff;
   }
 
   .no-finding-box {
-    background: #064e3b;
-    border: 1px solid #16a34a;
-    color: #dcfce7;
+    background: #00260f;
+    border: 2px solid #00ff66;
+    color: #00ff66;
     padding: 10px;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 11px;
+    box-shadow: 2px 2px 0 #000;
   }
   .nf-icon {
-    font-size: 16px;
-    font-weight: bold;
+    font-size: 12px;
   }
 
   .finding-card {
-    background: #05080e;
-    border: 1px solid #1e293b;
+    background: #111411;
+    border: 2px solid #2a2f2a;
+    border-left: 4px solid #f0c419;
     padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    box-shadow: 2px 2px 0 #000;
   }
   .finding-card.severity-high {
-    border-left: 4px solid #ef4444;
+    border-left-color: #ff3b3b;
   }
   .finding-card.severity-medium {
-    border-left: 4px solid #f59e0b;
+    border-left-color: #f0c419;
   }
 
   .finding-header {
@@ -1411,43 +1456,44 @@
   }
   .sev-badge {
     font-family: 'Press Start 2P', monospace;
-    font-size: 8px;
+    font-size: 7.5px;
   }
-  .sev-high { color: #fca5a5; }
-  .sev-medium { color: #fde68a; }
+  .sev-high { color: #ff3b3b; }
+  .sev-medium { color: #f0c419; }
   .fnd-conf {
     font-size: 9.5px;
-    color: #cbd5e1;
+    color: #8a948a;
   }
   .fnd-desc {
     margin: 0;
     font-size: 10.5px;
     line-height: 1.45;
-    color: #f1f5f9;
+    color: #ffffff;
   }
   .fnd-evidence {
     display: flex;
     justify-content: space-between;
     font-size: 9px;
-    color: #94a3b8;
-    border-top: 1px solid #131e2e;
+    color: #8a948a;
+    border-top: 1px solid #222622;
     padding-top: 4px;
   }
 
   /* Config view */
   .control-box {
-    border: 1px solid #1e293b;
+    border: 2px solid #2a2f2a;
     padding: 8px 10px;
     margin: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: #070b12;
+    background: #111411;
+    box-shadow: 2px 2px 0 #000;
   }
   .ctrl-legend {
     font-family: 'Press Start 2P', monospace;
     font-size: 7.5px;
-    color: #00f0ff;
+    color: #f0c419;
     padding: 0 4px;
     letter-spacing: 0.5px;
   }
@@ -1460,7 +1506,7 @@
   }
   .ctrl-label {
     font-size: 10px;
-    color: #cbd5e1;
+    color: #e5e5e5;
   }
 
   .btn-group {
@@ -1468,28 +1514,30 @@
     gap: 4px;
   }
   .btn-toggle {
-    background: #090e17;
-    border: 1px solid #1e293b;
-    color: #94a3b8;
+    background: #141714;
+    border: 2px solid #2a2f2a;
+    color: #8a948a;
     font-family: 'Press Start 2P', monospace;
-    font-size: 7.5px;
-    padding: 4px 8px;
+    font-size: 7px;
+    padding: 4px 6px;
     cursor: pointer;
-    transition: all 0.12s;
+    box-shadow: 1px 1px 0 #000;
+    transition: all 0.08s steps(2);
   }
   .btn-toggle.selected {
-    background: #0284c7;
-    color: #fff;
-    border-color: #38bdf8;
+    background: #1a1600;
+    color: #f0c419;
+    border-color: #f0c419;
+    box-shadow: none;
+    transform: translate(1px, 1px);
     font-weight: bold;
-    box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
   }
 
   input[type='number'],
   select {
-    background: #04060a;
-    border: 1px solid #1e293b;
-    color: #f1f5f9;
+    background: #0a0a0a;
+    border: 2px solid #2a2f2a;
+    color: #ffffff;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
     padding: 4px 6px;
@@ -1497,8 +1545,8 @@
   }
   input[type='number']:focus,
   select:focus {
-    outline: 1px solid #00f0ff;
-    border-color: #00f0ff;
+    outline: 2px solid #f0c419;
+    border-color: #f0c419;
   }
 
   .input-with-presets {
@@ -1512,21 +1560,20 @@
     gap: 3px;
   }
   .btn-preset {
-    background: #090e17;
-    border: 1px solid #1e293b;
-    color: #94a3b8;
+    background: #141714;
+    border: 1px solid #2a2f2a;
+    color: #8a948a;
     font-family: 'Press Start 2P', monospace;
     font-size: 6.5px;
     padding: 2px 4px;
     cursor: pointer;
-    transition: all 0.1s;
   }
   .btn-preset:hover {
-    color: #00f0ff;
-    border-color: #00f0ff;
+    color: #f0c419;
+    border-color: #f0c419;
   }
 
-  /* Actions footer */
+  /* Actions footer (The INITIATE HAVOC Moment) */
   .action-footer {
     display: flex;
     gap: 6px;
@@ -1537,49 +1584,52 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 9px;
+    padding: 10px;
     font-family: 'Press Start 2P', monospace;
-    font-size: 9px;
-    letter-spacing: 0.5px;
+    font-size: 9.5px;
+    letter-spacing: 1px;
     cursor: pointer;
-    border-radius: 2px;
-    transition: all 0.15s;
+    border: 2px solid;
+    box-shadow: 4px 4px 0 #000000;
+    transition: transform 0.05s steps(2), box-shadow 0.05s steps(2);
+  }
+  .btn-action:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 0 0 0 #000000;
   }
 
   .btn-start {
-    background: #00ff88;
-    color: #022c15;
-    border: 1px solid #00ff88;
-    text-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
-    box-shadow: 0 0 10px rgba(0, 255, 136, 0.35);
+    background: #f0c419;
+    color: #0a0a0a;
+    border-color: #f0c419;
+    font-weight: 900;
   }
   .btn-start:hover:not(:disabled) {
-    background: #34d399;
-    box-shadow: 0 0 16px rgba(0, 255, 136, 0.6);
+    background: #ffd633;
+    border-color: #ffd633;
   }
   .btn-start:disabled {
-    background: #112017;
-    color: #4b6355;
-    border-color: #1a3023;
-    box-shadow: none;
+    background: #1f1b0a;
+    color: #66591f;
+    border-color: #332d0d;
+    box-shadow: 2px 2px 0 #000;
     cursor: default;
   }
 
   .btn-abort {
-    background: #ef4444;
-    color: #fff;
-    border: 1px solid #ef4444;
-    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+    background: #ff3b3b;
+    color: #ffffff;
+    border-color: #ff3b3b;
   }
   .btn-abort:hover:not(:disabled) {
-    background: #f87171;
-    box-shadow: 0 0 16px rgba(239, 68, 68, 0.7);
+    background: #ff6666;
+    border-color: #ff6666;
   }
   .btn-abort:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: default;
   }
   .btn-icon {
-    font-size: 9px;
+    font-size: 8.5px;
   }
 </style>
