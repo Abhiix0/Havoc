@@ -46,25 +46,9 @@ let _currentRun: ExperimentRun | null = null;
  */
 export async function rehydrate(): Promise<void> {
   const result = await chrome.storage.session.get(SESSION_KEY);
-  let stored = result[SESSION_KEY] as ExperimentRun | null | undefined;
-
-  if (stored !== null && stored !== undefined && NON_RESUMABLE_STATES.has(stored.state)) {
-    // Run was interrupted mid-lifecycle by SW suspension. The in-memory
-    // registry, abort controller, and timers are all gone — we cannot
-    // resume it. Mark it FAILED and clear the checkpoint so the next
-    // startRun() doesn't see a zombie blocking run.
-    console.warn(
-      `[HAVOC][state] discarding non-resumable run ${stored.runId} (was ${stored.state}) — marking FAILED`
-    );
-    stored = { ...stored, state: 'FAILED', updatedAt: Date.now() };
-    await chrome.storage.session.remove(SESSION_KEY);
-    // Keep _currentRun as null — the failed run is gone.
-    _currentRun = null;
-    console.log('[HAVOC][state] rehydrated: stale run discarded');
-    return;
-  }
-
+  const stored = result[SESSION_KEY] as ExperimentRun | null | undefined;
   _currentRun = stored ?? null;
+
   console.log(
     '[HAVOC][state] rehydrated from session storage:',
     _currentRun ? `run ${_currentRun.runId} (${_currentRun.state})` : 'no active run'

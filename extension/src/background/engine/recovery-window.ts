@@ -42,7 +42,7 @@
 
 import type { HavocEvent } from '../../domain/event';
 import type { Signal } from '../../domain/signal';
-import type { Recovery, RecoveryOutcome } from '../../domain/recovery';
+import type { Recovery } from '../../domain/recovery';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +53,9 @@ export interface RecoveryWindowInput {
   /** Timestamp when chaos was removed (STOPPING transition). */
   chaosEndTime: number;
   /** How long to wait for recovery evidence. Default: 8 s. */
-  windowMs?: number;
+  windowMs?: number | undefined;
+  /** Optional AbortSignal to short-circuit the recovery window. */
+  signal?: AbortSignal | undefined;
   /** All HavocEvents buffered for this run, including post-chaos arrivals. */
   events: HavocEvent[];
   /** All Signals derived for this run. */
@@ -286,8 +288,10 @@ export function evaluateRecovery(
  */
 export async function openRecoveryWindow(
   input: RecoveryWindowInput,
-  getLatestBuffer: () => { events: HavocEvent[]; signals: Signal[] }
+  getLatestBuffer: () => { events: HavocEvent[]; signals: Signal[] },
+  signal?: AbortSignal
 ): Promise<RecoveryWindowResult> {
+  const effectiveSignal = signal ?? input.signal;
   const windowMs = input.windowMs ?? DEFAULT_WINDOW_MS;
   const windowEnd = input.chaosEndTime + windowMs;
 
@@ -296,10 +300,33 @@ export async function openRecoveryWindow(
     `(${windowMs}ms, ends at ${new Date(windowEnd).toISOString()})`
   );
 
-  // Wait for the window to close.
+  // Wait for the window to close, or abort immediately if signal fires.
   const remaining = windowEnd - Date.now();
-  if (remaining > 0) {
-    await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+  if (remaining > 0 && !effectiveSignal?.aborted) {
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      }, remaining);
+
+      if (effectiveSignal) {
+        effectiveSignal.addEventListener(
+          'abort',
+          () => {
+            if (!done) {
+              done = true;
+              clearTimeout(timer);
+              console.log(`[HAVOC][recovery] run ${input.runId}: recovery window short-circuited by abort`);
+              resolve();
+            }
+          },
+          { once: true }
+        );
+      }
+    });
   }
 
   // Snapshot the live buffer at evaluation time.
@@ -309,7 +336,7 @@ export async function openRecoveryWindow(
     ...input,
     events,
     signals,
-    windowEnd,
+    windowEnd: Math.min(windowEnd, Date.now()),
   });
 
   console.log(

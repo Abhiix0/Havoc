@@ -266,4 +266,75 @@ describe('HAVOC Phase 9 — Hardening Golden Tests', () => {
       }
     });
   });
+
+  describe('Golden Test 5: Abort Lifecycle & Timeout Isolation', () => {
+    it('times out hanging resource cleanups without blocking other resources', async () => {
+      const { vi } = await import('vitest');
+      vi.useFakeTimers();
+
+      const registry = new ResourceRegistry();
+      let resourceBCompleted = false;
+
+      // Register a resource that never resolves (simulating a hung tab / deadlock)
+      registry.register({
+        id: 'hung-resource',
+        scope: 'run-lifetime',
+        cleanup: () => new Promise<void>(() => {}), // never resolves
+      });
+
+      // Register a healthy resource
+      registry.register({
+        id: 'healthy-resource',
+        scope: 'run-lifetime',
+        cleanup: () => {
+          resourceBCompleted = true;
+        },
+      });
+
+      const cleanupPromise = registry.cleanupAll();
+
+      // Fast-forward past the 5000ms per-resource timeout
+      await vi.advanceTimersByTimeAsync(5100);
+
+      const result = await cleanupPromise;
+
+      expect(result.failed).toHaveLength(1);
+      expect(result.failed[0]?.id).toBe('hung-resource');
+      expect(result.failed[0]?.error).toBe('cleanup timed out');
+      expect(result.succeeded).toContain('healthy-resource');
+      expect(resourceBCompleted).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('short-circuits openRecoveryWindow immediately when AbortSignal fires', async () => {
+      const { openRecoveryWindow } = await import('../recovery-window');
+      const abortCtrl = new AbortController();
+
+      const startTime = Date.now();
+      const recoveryPromise = openRecoveryWindow(
+        {
+          runId: 'run-abort-test',
+          chaosEndTime: startTime,
+          windowMs: 8000,
+          signal: abortCtrl.signal,
+          events: [],
+          signals: [],
+        },
+        () => ({ events: [], signals: [] }),
+        abortCtrl.signal
+      );
+
+      // Abort after 50ms
+      setTimeout(() => {
+        abortCtrl.abort();
+      }, 50);
+
+      const result = await recoveryPromise;
+      const elapsed = Date.now() - startTime;
+
+      expect(elapsed).toBeLessThan(1000); // resolved within <1s instead of waiting 8s
+      expect(result.recovery.outcome).toBe('UNKNOWN');
+    });
+  });
 });

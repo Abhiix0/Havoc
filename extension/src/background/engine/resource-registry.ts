@@ -39,6 +39,22 @@ export interface CleanupResult {
 // ResourceRegistry
 // ---------------------------------------------------------------------------
 
+const CLEANUP_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T> | T, timeoutMs: number): Promise<T> {
+  const p = Promise.resolve(promise);
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('cleanup timed out')), timeoutMs);
+      p.then(
+        () => clearTimeout(timer),
+        () => clearTimeout(timer)
+      );
+    }),
+  ]);
+}
+
 export class ResourceRegistry {
   private readonly _resources: Resource[] = [];
 
@@ -52,12 +68,14 @@ export class ResourceRegistry {
 
   /**
    * Attempt to clean up all registered resources in LIFO order.
-   * Every resource is attempted independently — one failure does NOT stop
-   * the rest. Returns a CleanupResult so the caller can inspect what failed.
+   * Every resource is attempted independently with a 5000ms timeout — one failure
+   * or slow resource does NOT block the rest.
    *
-   * After this call the registry is empty regardless of failures.
+   * @param signal  Optional AbortSignal for context (cleanup itself is never skipped).
+   * @returns       CleanupResult indicating which resources succeeded or failed.
    */
-  async cleanupAll(): Promise<CleanupResult> {
+  async cleanupAll(signal?: AbortSignal): Promise<CleanupResult> {
+    void signal;
     // Take a snapshot in reverse order and clear immediately so re-entrant
     // calls (e.g. from a timeout) don't double-clean.
     const toClean = this._resources.splice(0).reverse();
@@ -66,7 +84,7 @@ export class ResourceRegistry {
 
     for (const resource of toClean) {
       try {
-        await resource.cleanup();
+        await withTimeout(resource.cleanup(), CLEANUP_TIMEOUT_MS);
         result.succeeded.push(resource.id);
         console.log(`[HAVOC][registry] cleaned up "${resource.id}"`);
       } catch (err) {

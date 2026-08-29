@@ -166,7 +166,7 @@ export async function startRun(
     if (!verification.ok) {
       console.warn(`[HAVOC][coordinator] ${run.runId}: target lost — ${verification.reason}: ${verification.detail}`);
       run = await transition(run, 'TARGET_LOST');
-      return await doCleanup(run);
+      return await doCleanup(run, signal);
     }
 
     // --- ACTIVE — inject chaos if applicable ---
@@ -182,7 +182,7 @@ export async function startRun(
           // This is a target problem, not an experiment bug.
           console.warn(`[HAVOC][coordinator] ${run.runId}: content script absent — ${err.message}`);
           run = await transition(run, 'TARGET_LOST');
-          return await doCleanup(run);
+          return await doCleanup(run, signal);
         }
         throw err; // other errors propagate to the outer catch → FAILED
       }
@@ -210,11 +210,20 @@ export async function startRun(
     } else {
       run = await transitionToFailed(run, err);
     }
-    return await doCleanup(run);
+    return await doCleanup(run, signal);
   }
 
   // --- CLEANING ---
-  run = await doCleanup(run);
+  run = await doCleanup(run, signal);
+
+  // If aborted before or during cleanup, transition directly to ABORTED
+  if (signal.aborted) {
+    run = await transition(run, 'ABORTED');
+    await checkpoint(null);
+    broadcastStateUpdate(null, 'ABORTED');
+    return run;
+  }
+
   if (isTerminal(run.state)) return run;
 
   // --- EVALUATING ---
@@ -225,19 +234,28 @@ export async function startRun(
       ? definition.params.recoveryWindowMs
       : 8_000;
 
-    // Open the recovery window — waits recoveryWindowMs for post-chaos events
-    // to accumulate in the signal engine buffer, then evaluates predicates.
+    // Open the recovery window — short-circuited early if abort signal fires
     const recoveryResult = await openRecoveryWindow(
       {
         runId: run.runId,
         chaosEndTime,
         windowMs: recoveryWindowMs,
+        signal,
         // Static snapshots at STOPPING time — the callback below overrides with live data.
         events: [],
         signals: [],
       },
-      () => getRunSnapshot(run.runId)
+      () => getRunSnapshot(run.runId),
+      signal
     );
+
+    // If aborted during recovery window evaluation, transition directly to ABORTED
+    if (signal.aborted) {
+      run = await transition(run, 'ABORTED');
+      await checkpoint(null);
+      broadcastStateUpdate(null, 'ABORTED');
+      return run;
+    }
 
     // Build Evidence and (when justified) a Finding from the recovery result.
     const snapshot = getRunSnapshot(run.runId);
@@ -273,7 +291,21 @@ export async function startRun(
     );
 
   } catch (err) {
+    if (isAbortError(err)) {
+      run = await transition(run, 'ABORTED');
+      await checkpoint(null);
+      broadcastStateUpdate(null, 'ABORTED');
+      return run;
+    }
     return transitionToFailed(run, err);
+  }
+
+  // Check if aborted before completing
+  if (signal.aborted) {
+    run = await transition(run, 'ABORTED');
+    await checkpoint(null);
+    broadcastStateUpdate(null, 'ABORTED');
+    return run;
   }
 
   // --- COMPLETED ---
@@ -297,9 +329,10 @@ export async function abortRun(): Promise<void> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function doCleanup(run: ExperimentRun): Promise<ExperimentRun> {
+async function doCleanup(run: ExperimentRun, signal?: AbortSignal): Promise<ExperimentRun> {
+  const preCleanupState = run.state;
   let current = await transition(run, 'CLEANING');
-  const result = await _registry.cleanupAll();
+  const result = await _registry.cleanupAll(signal);
 
   if (result.failed.length > 0) {
     console.error(
@@ -309,6 +342,15 @@ async function doCleanup(run: ExperimentRun): Promise<ExperimentRun> {
     current = await transition(current, 'CLEANUP_FAILED');
     await checkpoint(null);
     broadcastStateUpdate(null, 'CLEANUP_FAILED');
+    return current;
+  }
+
+  // If the run had already entered a terminal state (e.g. ABORTED, TARGET_LOST, FAILED),
+  // restore and finalize that terminal state after successful resource cleanup.
+  if (isTerminal(preCleanupState)) {
+    current = await transition(current, preCleanupState);
+    await checkpoint(null);
+    broadcastStateUpdate(null, preCleanupState);
     return current;
   }
 
