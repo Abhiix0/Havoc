@@ -250,7 +250,11 @@
             {:else}
               <div class="events-column">
                 {#each activeEvents as evt (evt.id)}
-                  <EventRow event={evt} startTime={activeRun?.createdAt ?? 0} />
+                  <EventRow
+                    event={evt}
+                    startTime={activeRun?.createdAt ?? 0}
+                    targetOrigin={activeRun?.target?.origin ?? ''}
+                  />
                 {/each}
               </div>
             {/if}

@@ -180,7 +180,11 @@
         {:else}
           {#each recentEvents as evt (evt.id)}
             <div in:slide={{ duration: 120, easing: cubicOut }}>
-              <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+              <EventRow
+                event={evt}
+                startTime={$currentRun?.createdAt ?? 0}
+                targetOrigin={$currentRun?.target?.origin ?? ''}
+              />
             </div>
           {/each}
         {/if}

@@ -1,14 +1,23 @@
 <script lang="ts">
   import type { Signal } from '../../../domain/signal';
+  import { getSignalPlausibilityTag } from '../utils/plausibility';
 
   export let signal: Signal;
 
   $: confidencePct = Math.round((signal.confidence ?? 0) * 100);
+  $: plausibilityTag = getSignalPlausibilityTag(signal);
 </script>
 
 <div class="signal-card">
   <div class="sig-header">
-    <span class="sig-type">{signal.type}</span>
+    <div class="sig-title-group">
+      <span class="sig-type">{signal.type}</span>
+      {#if plausibilityTag}
+        <span class="sig-plausibility tone-{plausibilityTag.tone}">
+          {plausibilityTag.label}
+        </span>
+      {/if}
+    </div>
     <span class="sig-conf-badge">{confidencePct}% CONF</span>
   </div>
   <div class="sig-meter">
@@ -43,10 +52,37 @@
     justify-content: space-between;
   }
 
+  .sig-title-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
   .sig-type {
     font-size: 10px;
     font-weight: 700;
     color: var(--text-primary, #F2F2F0);
+  }
+
+  .sig-plausibility {
+    font-size: 8px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 2px;
+    letter-spacing: 0.2px;
+  }
+
+  .tone-chaos {
+    background: rgba(232, 92, 74, 0.15);
+    color: var(--havoc-red, #E85C4A);
+    border: 1px solid rgba(232, 92, 74, 0.3);
+  }
+
+  .tone-ambient {
+    background: rgba(245, 196, 81, 0.15);
+    color: var(--warn-amber, #F5C451);
+    border: 1px solid rgba(245, 196, 81, 0.3);
   }
 
   .sig-conf-badge {

@@ -1,13 +1,21 @@
 <script lang="ts">
   import type { HavocEvent } from '../../../domain/event';
+  import { activeTab, currentRun } from '../stores/run';
+  import { getEventPlausibilityTag } from '../utils/plausibility';
 
   export let event: HavocEvent;
   export let startTime: number = 0;
+  export let targetOrigin: string = '';
+
+  $: effectiveTargetOrigin =
+    targetOrigin || $currentRun?.target?.origin || $activeTab?.origin || '';
 
   $: relTime =
     startTime > 0 && event.timestamp > 0
       ? `+${((event.timestamp - startTime) / 1000).toFixed(2)}s`
       : `#${event.sequence}`;
+
+  $: plausibilityTag = getEventPlausibilityTag(event, effectiveTargetOrigin);
 
   function getBadgeTone(type: string): string {
     if (type === 'CHAOS_INJECTED') return 'chaos';
@@ -28,6 +36,11 @@
 <div class="event-row">
   <span class="evt-time">{relTime}</span>
   <span class="evt-badge badge-{getBadgeTone(event.type)}">{event.type}</span>
+  {#if plausibilityTag}
+    <span class="plausibility-tag tone-{plausibilityTag.tone}">
+      {plausibilityTag.label}
+    </span>
+  {/if}
   <span class="evt-detail" title={getDetailText(event)}>{getDetailText(event)}</span>
 </div>
 
@@ -58,6 +71,34 @@
     padding: 1px 4px;
     border-radius: 2px;
     letter-spacing: 0.2px;
+    flex-shrink: 0;
+  }
+
+  .plausibility-tag {
+    font-size: 8px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 2px;
+    letter-spacing: 0.2px;
+    flex-shrink: 0;
+  }
+
+  .tone-chaos {
+    background: rgba(232, 92, 74, 0.15);
+    color: var(--havoc-red, #E85C4A);
+    border: 1px solid rgba(232, 92, 74, 0.3);
+  }
+
+  .tone-ambient {
+    background: rgba(245, 196, 81, 0.15);
+    color: var(--warn-amber, #F5C451);
+    border: 1px solid rgba(245, 196, 81, 0.3);
+  }
+
+  .tone-noise {
+    background: var(--bg-surface, #16171A);
+    color: var(--text-muted, #8A8B90);
+    border: 1px solid var(--border, #2A2B30);
   }
 
   .badge-chaos {
