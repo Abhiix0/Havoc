@@ -106,8 +106,10 @@
 
   async function handleStart() {
     const def = buildDefinition();
-    await handleStartRun(def);
-    dispatch('navigate', 'active');
+    const started = await handleStartRun(def);
+    if (started) {
+      dispatch('navigate', 'active');
+    }
   }
 
   function getKindTitle(k: ExperimentKind): string {

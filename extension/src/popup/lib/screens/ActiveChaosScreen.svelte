@@ -110,78 +110,95 @@
 </script>
 
 <div class="active-screen" in:fade={{ duration: 200, easing: cubicOut }}>
-  <!-- Top State Header -->
-  <header class="active-header">
-    <div class="header-left">
-      <span class="live-dot" />
-      <span class="header-label">EXPERIMENT IN PROGRESS</span>
+  {#if !$currentRun}
+    <div class="empty-state">
+      <div class="robot-wrap">
+        <Robot state="idle" />
+      </div>
+      <div class="empty-text">
+        <span class="empty-title">NO ACTIVE RUN</span>
+        <p class="empty-desc">There is currently no active chaos experiment running.</p>
+      </div>
+      <div class="empty-action">
+        <Button variant="ghost" on:click={() => dispatch('navigate', 'home')}>
+          ← RETURN HOME
+        </Button>
+      </div>
     </div>
-    <div class="header-right">
-      <span class="timer-tag">{elapsedSec.toFixed(1)}s</span>
-    </div>
-  </header>
+  {:else}
+    <!-- Top State Header -->
+    <header class="active-header">
+      <div class="header-left">
+        <span class="live-dot" />
+        <span class="header-label">EXPERIMENT IN PROGRESS</span>
+      </div>
+      <div class="header-right">
+        <span class="timer-tag">{elapsedSec.toFixed(1)}s</span>
+      </div>
+    </header>
 
-  <!-- Robot Mascot & Live State Indicator -->
-  <div class="status-hero">
-    <div class="robot-wrap">
-      <Robot state={getRobotState($currentRun?.state)} />
-    </div>
+    <!-- Robot Mascot & Live State Indicator -->
+    <div class="status-hero">
+      <div class="robot-wrap">
+        <Robot state={getRobotState($currentRun?.state)} />
+      </div>
 
-    <div class="state-block">
-      <span class="state-tag {getStateTone($currentRun?.state)}">
-        ● {$currentRun?.state ?? 'ACTIVE'}
-      </span>
-      <p class="affected-summary">{getAffectedSummary($currentRun)}</p>
-    </div>
-  </div>
-
-  <!-- Target & Run Meta Info -->
-  <div class="meta-card">
-    <div class="meta-row">
-      <span class="meta-label">RUN ID:</span>
-      <span class="meta-val mono">{$currentRun?.runId ?? 'UNKNOWN'}</span>
-    </div>
-    <div class="meta-row">
-      <span class="meta-label">TARGET:</span>
-      <span class="meta-val mono" title={$currentRun?.target.origin}>
-        {$currentRun?.target.origin ?? 'Active Tab'}
-      </span>
-    </div>
-  </div>
-
-  <!-- Live Telemetry Ticker -->
-  <div class="ticker-section">
-    <div class="ticker-header">
-      <span class="ticker-title">LIVE TELEMETRY</span>
-      <span class="ticker-count">{$events.length} EVENTS</span>
+      <div class="state-block">
+        <span class="state-tag {getStateTone($currentRun?.state)}">
+          ● {$currentRun?.state ?? 'ACTIVE'}
+        </span>
+        <p class="affected-summary">{getAffectedSummary($currentRun)}</p>
+      </div>
     </div>
 
-    <div class="events-stream">
-      {#if recentEvents.length === 0}
-        <div class="empty-ticker">
-          <span class="pulse-line">Awaiting initial telemetry events...</span>
-        </div>
-      {:else}
-        {#each recentEvents as evt (evt.id)}
-          <div in:slide={{ duration: 120, easing: cubicOut }}>
-            <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+    <!-- Target & Run Meta Info -->
+    <div class="meta-card">
+      <div class="meta-row">
+        <span class="meta-label">RUN ID:</span>
+        <span class="meta-val mono">{$currentRun?.runId ?? 'UNKNOWN'}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">TARGET:</span>
+        <span class="meta-val mono" title={$currentRun?.target.origin}>
+          {$currentRun?.target.origin ?? 'Active Tab'}
+        </span>
+      </div>
+    </div>
+
+    <!-- Live Telemetry Ticker -->
+    <div class="ticker-section">
+      <div class="ticker-header">
+        <span class="ticker-title">LIVE TELEMETRY</span>
+        <span class="ticker-count">{$events.length} EVENTS</span>
+      </div>
+
+      <div class="events-stream">
+        {#if recentEvents.length === 0}
+          <div class="empty-ticker">
+            <span class="pulse-line">Awaiting initial telemetry events...</span>
           </div>
-        {/each}
-      {/if}
+        {:else}
+          {#each recentEvents as evt (evt.id)}
+            <div in:slide={{ duration: 120, easing: cubicOut }}>
+              <EventRow event={evt} startTime={$currentRun?.createdAt ?? 0} />
+            </div>
+          {/each}
+        {/if}
+      </div>
     </div>
-  </div>
 
-  <!-- Action Bar -->
-  <div class="action-footer">
-    <Button
-      variant="danger"
-      disabled={$aborting ||
-        ($currentRun !== null && TERMINAL_STATES.has($currentRun.state))}
-      on:click={handleAbortRun}
-    >
-      {$aborting ? 'STOPPING...' : '■ STOP HAVOC'}
-    </Button>
-  </div>
+    <!-- Action Bar -->
+    <div class="action-footer">
+      <Button
+        variant="danger"
+        disabled={$aborting ||
+          ($currentRun !== null && TERMINAL_STATES.has($currentRun.state))}
+        on:click={handleAbortRun}
+      >
+        {$aborting ? 'STOPPING...' : '■ STOP HAVOC'}
+      </Button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -387,6 +404,44 @@
     padding: var(--space-3, 12px) var(--space-4, 16px);
     font-size: var(--text-base, 13px);
     letter-spacing: 0.5px;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    text-align: center;
+    gap: var(--space-4, 16px);
+    margin: auto 0;
+  }
+
+  .empty-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .empty-title {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: var(--text-base, 13px);
+    font-weight: 700;
+    color: var(--text-primary, #F2F2F0);
+    letter-spacing: 0.5px;
+  }
+
+  .empty-desc {
+    margin: 0;
+    font-size: var(--text-xs, 11px);
+    color: var(--text-muted, #8A8B90);
+    max-width: 280px;
+    line-height: 1.4;
+  }
+
+  .empty-action {
+    margin-top: var(--space-2, 8px);
   }
 
   @keyframes blink-dot {

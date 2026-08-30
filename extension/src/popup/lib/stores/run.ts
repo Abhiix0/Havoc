@@ -164,12 +164,12 @@ export function handleRuntimeMessage(message: unknown): void {
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
-export async function handleStartRun(definition: ExperimentDefinition): Promise<void> {
+export async function handleStartRun(definition: ExperimentDefinition): Promise<boolean> {
   const isStarting = get(starting);
   const active = get(isRunActive);
   const currentTarget = get(activeTab);
 
-  if (isStarting || active) return;
+  if (isStarting || active) return false;
   starting.set(true);
   error.set(null);
 
@@ -182,6 +182,7 @@ export async function handleStartRun(definition: ExperimentDefinition): Promise<
       if (response.error) {
         error.set(response.error);
         starting.set(false);
+        return false;
       } else if (response.run) {
         currentRun.set(response.run);
         events.set([]);
@@ -190,14 +191,21 @@ export async function handleStartRun(definition: ExperimentDefinition): Promise<
         findings.set([]);
         activeTabNav.set('timeline');
         starting.set(false);
+        return true;
+      } else {
+        error.set('Invalid response received from service worker');
+        starting.set(false);
+        return false;
       }
     } else {
       error.set('Invalid response received from service worker');
       starting.set(false);
+      return false;
     }
   } catch (e) {
     error.set(e instanceof Error ? e.message : 'Failed to launch experiment');
     starting.set(false);
+    return false;
   }
 }
 

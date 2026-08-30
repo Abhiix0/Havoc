@@ -213,7 +213,7 @@ describe('HAVOC Run Store (Phase 0 Refactor)', () => {
       expect(get(currentRun)?.state).toBe('ACTIVE');
     });
 
-    it('launches experiment via handleStartRun', async () => {
+    it('launches experiment via handleStartRun and returns true on success', async () => {
       const newRun: ExperimentRun = {
         runId: 'new-run-77',
         target: mockTarget,
@@ -235,10 +235,54 @@ describe('HAVOC Run Store (Phase 0 Refactor)', () => {
         params: { delayMs: 800, durationMs: 5000, recoveryWindowMs: 8000 },
       };
 
-      await handleStartRun(def);
+      const result = await handleStartRun(def);
 
+      expect(result).toBe(true);
       expect(get(currentRun)?.runId).toBe('new-run-77');
       expect(get(activeTabNav)).toBe('timeline');
+      expect(get(starting)).toBe(false);
+      expect(get(error)).toBeNull();
+    });
+
+    it('returns false and sets error when chrome.runtime.sendMessage response contains an error', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce(
+        createCreateRunResponseMessage(undefined, 'Target tab not found or closed')
+      );
+
+      const def: ExperimentDefinition = {
+        id: 'd1',
+        name: 'Latency',
+        kind: 'fetch_latency',
+        description: 'Latency exp',
+        params: { delayMs: 800, durationMs: 5000, recoveryWindowMs: 8000 },
+      };
+
+      const result = await handleStartRun(def);
+
+      expect(result).toBe(false);
+      expect(get(currentRun)).toBeNull();
+      expect(get(error)).toBe('Target tab not found or closed');
+      expect(get(starting)).toBe(false);
+    });
+
+    it('returns false and sets error when chrome.runtime.sendMessage rejects', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockRejectedValueOnce(
+        new Error('Extension context invalidated')
+      );
+
+      const def: ExperimentDefinition = {
+        id: 'd1',
+        name: 'Latency',
+        kind: 'fetch_latency',
+        description: 'Latency exp',
+        params: { delayMs: 800, durationMs: 5000, recoveryWindowMs: 8000 },
+      };
+
+      const result = await handleStartRun(def);
+
+      expect(result).toBe(false);
+      expect(get(currentRun)).toBeNull();
+      expect(get(error)).toBe('Extension context invalidated');
       expect(get(starting)).toBe(false);
     });
 
