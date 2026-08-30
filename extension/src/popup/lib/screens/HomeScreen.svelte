@@ -13,11 +13,7 @@
 
   $: hasTerminalRun = $currentRun !== null && TERMINAL_STATES.has($currentRun.state);
   $: capabilities = $activeTab
-    ? [
-        { label: 'TOP-LEVEL', tone: 'neutral' as const },
-        { label: 'INTERCEPT', tone: 'info' as const },
-        { label: 'ONLINE', tone: 'success' as const },
-      ]
+    ? [{ label: 'TOP-LEVEL', tone: 'neutral' as const }]
     : [{ label: 'STANDBY', tone: 'neutral' as const }];
 </script>
 
