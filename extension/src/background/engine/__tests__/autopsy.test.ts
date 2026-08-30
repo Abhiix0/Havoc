@@ -53,18 +53,6 @@ function makeSuccessEvent(overrides: { url: string; ts: number }): HavocEvent {
   };
 }
 
-function makeLoadingRemovedEvent(ts: number): HavocEvent {
-  return {
-    id: crypto.randomUUID(),
-    runId: 'run-test',
-    timestamp: ts,
-    sequence: seq(),
-    type: 'DOM_OBSERVATION',
-    source: 'content',
-    metadata: { kind: 'loading_indicator_removed', selector: '.spinner', textSnippet: '' },
-  };
-}
-
 function makeErrorTextEvent(ts: number): HavocEvent {
   return {
     id: crypto.randomUUID(),

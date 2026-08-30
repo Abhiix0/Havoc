@@ -19,9 +19,13 @@
     return cleanup;
   });
 
-  // If a run is active, show the active screen immediately
+  // If a run is active, show the active screen immediately unless inspecting past runs
   $: if ($isRunActive) {
-    if (currentScreen !== 'active') {
+    const isInspectingHistorical =
+      currentScreen === 'history' ||
+      (currentScreen === 'autopsy' && inspectedRunId !== null);
+
+    if (currentScreen !== 'active' && !isInspectingHistorical) {
       currentScreen = 'active';
       inspectedRunId = null;
     }
