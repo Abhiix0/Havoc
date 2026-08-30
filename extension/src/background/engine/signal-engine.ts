@@ -48,6 +48,8 @@
 import type { HavocEvent } from '../../domain/event';
 import type { Signal } from '../../domain/signal';
 import type { DomObservationPayload } from '../../messaging/messages';
+import type { ExperimentKind } from '../../domain/experiment';
+import { getCurrentRun } from '../state';
 import {
   evaluateAdmission,
   shouldCoalesceDomEvent,
@@ -57,6 +59,11 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface SignalContext {
+  kind?: ExperimentKind | undefined;
+  targetOrigin?: string | undefined;
+}
 
 /** A HavocEvent that carries a DOM observation in its metadata. */
 interface DomHavocEvent extends HavocEvent {
@@ -103,6 +110,7 @@ interface RunBuffer {
   events: HavocEvent[];
   /** Fingerprints of already-emitted signals: type + ':' + primaryEventId */
   emitted: Set<string>;
+  context?: SignalContext;
 }
 
 const _buffers = new Map<string, RunBuffer>();
@@ -127,6 +135,12 @@ function pruneBuffer(buf: RunBuffer, now: number): void {
 export function clearRunBuffer(runId: string): void {
   _buffers.delete(runId);
   clearBackpressureState(runId);
+}
+
+/** Register or update the run context (experiment kind, target origin). */
+export function setRunContext(runId: string, context: SignalContext): void {
+  const buf = getBuffer(runId);
+  buf.context = { ...buf.context, ...context };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,16 +178,68 @@ function isDomObservationEvent(event: HavocEvent): event is DomHavocEvent {
   );
 }
 
+function getOrigin(urlStr?: string, baseOrigin?: string): string | null {
+  if (!urlStr) return null;
+  try {
+    return new URL(urlStr, baseOrigin).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isSameOrigin(urlStr?: string, targetOrigin?: string): boolean {
+  if (!urlStr || !targetOrigin) return false;
+  const tgtOrigin = getOrigin(targetOrigin);
+  if (!tgtOrigin) return false;
+  const eventOrigin = getOrigin(urlStr, tgtOrigin);
+  return Boolean(eventOrigin && eventOrigin === tgtOrigin);
+}
+
+function resolveContext(
+  event: HavocEvent,
+  buf: RunBuffer
+): { kind?: ExperimentKind | undefined; targetOrigin?: string | undefined } {
+  let kind: ExperimentKind | undefined = buf.context?.kind;
+  let targetOrigin: string | undefined = buf.context?.targetOrigin;
+
+  if (!kind || !targetOrigin) {
+    try {
+      const currentRun = getCurrentRun();
+      if (currentRun && currentRun.runId === event.runId) {
+        kind = kind ?? currentRun.definition?.kind;
+        targetOrigin = targetOrigin ?? currentRun.target?.origin;
+      }
+    } catch {
+      // In isolated environments
+    }
+  }
+
+  if (!kind || !targetOrigin) {
+    const chaosEvent = buf.events.find(
+      (e) => e.type === 'CHAOS_INJECTED' && e.runId === event.runId
+    );
+    if (chaosEvent?.metadata) {
+      if (!kind && typeof chaosEvent.metadata.kind === 'string') {
+        kind = chaosEvent.metadata.kind as ExperimentKind;
+      }
+      if (!targetOrigin && typeof chaosEvent.metadata.origin === 'string') {
+        targetOrigin = chaosEvent.metadata.origin;
+      }
+    }
+  }
+
+  return { kind, targetOrigin };
+}
+
 // ---------------------------------------------------------------------------
 // Deriver 1 — RequestFailureObserved
 //
-// Confidence heuristic:
-//   0.95 baseline — these events come from instrumented fetch/XHR calls.
-//   We cannot claim 1.0 because:
-//     a) The failure may be a pre-existing flaky network, not caused by chaos.
-//     b) The injectionId linkage only exists when chaos is active.
-//   When injectionId is present (chaos was active during this request), we
-//   boost to 0.97 because we have direct causal evidence.
+// Causal-plausibility heuristics:
+//   - input_stress / viewport_stress never touch fetch/XHR -> unconditionally null.
+//   - fetch_latency -> only failures with injectionId linkage qualify.
+//   - fetch_failure -> failures with injectionId linkage OR same-origin to Target qualify.
+//                      cross-origin failures without injectionId are noise (ads/analytics).
+//   - Confidence: 0.97 with injectionId linkage, 0.95 for same-origin ambient/corroborated.
 // ---------------------------------------------------------------------------
 
 function deriveRequestFailure(
@@ -182,11 +248,40 @@ function deriveRequestFailure(
 ): Signal | null {
   if (!FAILURE_EVENT_TYPES.has(event.type)) return null;
 
+  const { kind, targetOrigin } = resolveContext(event, buf);
+
+  // 1. Input stress and viewport stress never touch fetch/XHR — reject all failure events unconditionally
+  if (kind === 'input_stress' || kind === 'viewport_stress') {
+    return null;
+  }
+
+  const hasInjectionLink = typeof event.metadata?.injectionId === 'string';
+  const sameOrigin = isSameOrigin(event.resource, targetOrigin);
+
+  // 2. Gate for fetch_latency vs fetch_failure vs default:
+  if (kind === 'fetch_latency') {
+    // fetch_latency only causes delays, not forced failures.
+    // Only failures directly intercepted during active injection count.
+    if (!hasInjectionLink) {
+      return null;
+    }
+  } else if (kind === 'fetch_failure') {
+    // fetch_failure: must have injection link OR be same-origin to the page under test
+    if (!hasInjectionLink && !sameOrigin) {
+      return null;
+    }
+  } else {
+    // If kind is unspecified (e.g. test fixture without kind):
+    // Require injection link OR same-origin if targetOrigin is known
+    if (!hasInjectionLink && targetOrigin && !sameOrigin) {
+      return null;
+    }
+  }
+
   const fingerprint = `RequestFailureObserved:${event.id}`;
   if (buf.emitted.has(fingerprint)) return null;
   buf.emitted.add(fingerprint);
 
-  const hasInjectionLink = typeof event.metadata?.injectionId === 'string';
   const confidence = hasInjectionLink ? 0.97 : 0.95;
 
   return makeSignal('RequestFailureObserved', event.runId, confidence, [event.id]);
@@ -330,13 +425,16 @@ function deriveErrorState(
  * Called by the SW on every event as it is constructed — including
  * DOM_OBSERVATION events constructed from DomObservationMessage payloads.
  */
-export function processEvent(event: HavocEvent): Signal[] {
+export function processEvent(event: HavocEvent, context?: SignalContext): Signal[] {
   // Check if DOM observation should be coalesced
   if (shouldCoalesceDomEvent(event)) {
     return [];
   }
 
   const buf = getBuffer(event.runId);
+  if (context) {
+    buf.context = { ...buf.context, ...context };
+  }
   const now = event.timestamp;
 
   // Evaluate admission against backpressure cap
