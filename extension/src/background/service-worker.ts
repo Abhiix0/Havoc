@@ -48,13 +48,15 @@ console.log('[HAVOC][SW] service worker booted');
 // ---------------------------------------------------------------------------
 // Synchronous Alarms listener — wakes service worker to un-stick zombie runs.
 // ---------------------------------------------------------------------------
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === WATCHDOG_ALARM_NAME) {
-    checkRunWatchdog().catch((err: unknown) => {
-      console.error('[HAVOC][SW] watchdog error:', err);
-    });
-  }
-});
+if (typeof chrome !== 'undefined' && chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === WATCHDOG_ALARM_NAME) {
+      checkRunWatchdog().catch((err: unknown) => {
+        console.error('[HAVOC][SW] watchdog error:', err);
+      });
+    }
+  });
+}
 
 function ensureWatchdogAlarm(): void {
   try {
@@ -69,19 +71,14 @@ function ensureWatchdogAlarm(): void {
   }
 }
 
-chrome.runtime.onInstalled.addListener((details) => {
-  console.log('[HAVOC][SW] installed/updated:', details.reason);
-  ensureWatchdogAlarm();
-});
+if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
+  chrome.runtime.onInstalled.addListener((details) => {
+    console.log('[HAVOC][SW] installed/updated:', details.reason);
+    ensureWatchdogAlarm();
+  });
+}
 
 ensureWatchdogAlarm();
-
-// ---------------------------------------------------------------------------
-// Per-run sequence counters.
-// The coordinator also exports nextSequence() — the SW uses it directly
-// here rather than maintaining a separate map.
-// ---------------------------------------------------------------------------
-const DEBUG_RUN_ID = 'debug-run' as const;
 
 // ---------------------------------------------------------------------------
 // Build a HavocEvent from a validated ObservationPayload.
@@ -205,7 +202,11 @@ async function resolveActiveTab(): Promise<Target | null> {
 // ---------------------------------------------------------------------------
 // Message listener — registered synchronously.
 // ---------------------------------------------------------------------------
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+export function handleIncomingMessage(
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void
+): boolean | undefined {
 
   // --- CREATE_RUN (popup → SW) ---
   if (isCreateRunMessage(message)) {
@@ -241,10 +242,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- DOM_OBSERVATION (content script → SW) ---
   if (isDomObservationMessage(message)) {
-    // Use the run the content script tagged this observation with, or the
-    // currently active run, or fall back to the debug placeholder.
-    const runId = message.payload.runId ?? getCurrentRun()?.runId ?? DEBUG_RUN_ID;
-    const event = domObservationToEvent(message.payload, runId);
+    const currentRun = getCurrentRun();
+    if (!currentRun || sender.tab?.id !== currentRun.target.tabId) {
+      console.log(
+        `[HAVOC][SW] discarded DOM observation from tab ${sender.tab?.id ?? 'unknown'}: does not match active run's target tab ${currentRun?.target.tabId ?? 'none'}`
+      );
+      sendResponse(null);
+      return true;
+    }
+
+    const event = domObservationToEvent(message.payload, currentRun.runId);
     emitEvent(event);
     sendResponse(null);
     return true;
@@ -252,8 +259,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- REQUEST_OBSERVATION (page → content → SW) ---
   if (isObservationMessage(message)) {
-    const runId = getCurrentRun()?.runId ?? DEBUG_RUN_ID;
-    const event = observationToEvent(message.payload, runId);
+    const currentRun = getCurrentRun();
+    if (!currentRun || sender.tab?.id !== currentRun.target.tabId) {
+      console.log(
+        `[HAVOC][SW] discarded REQUEST observation from tab ${sender.tab?.id ?? 'unknown'}: does not match active run's target tab ${currentRun?.target.tabId ?? 'none'}`
+      );
+      sendResponse(null);
+      return true;
+    }
+
+    const event = observationToEvent(message.payload, currentRun.runId);
     emitEvent(event);
     sendResponse(null);
     return true;
@@ -284,7 +299,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return false;
-});
+}
+
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener(handleIncomingMessage);
+}
 
 // ---------------------------------------------------------------------------
 // Async startup.
