@@ -100,6 +100,24 @@
     }
     return def.description || def.name;
   }
+
+  function getInconclusiveMessage(run: ExperimentRun | null, evts: HavocEvent[]): string {
+    const hasRequestEvents = evts.some((e) => e.type.startsWith('REQUEST_'));
+    const hasDomEvents = evts.some((e) => e.type === 'DOM_OBSERVATION');
+    const kind = run?.definition?.kind;
+
+    if (kind === 'input_stress' || kind === 'viewport_stress') {
+      if (!hasDomEvents) {
+        return 'No DOM changes or UI mutations were observed during this window — the target page did not produce observable loading or error states while stress was active.';
+      }
+    } else {
+      if (!hasRequestEvents && !hasDomEvents) {
+        return 'No network requests or DOM changes were observed during this window — the target page may not have made any fetch/XHR calls or displayed loading/error states while chaos was active.';
+      }
+    }
+
+    return 'Insufficient observable evidence to conclude definitive failure.';
+  }
 </script>
 
 <div class="autopsy-screen" in:fade={{ duration: 200, easing: cubicOut }}>
@@ -156,7 +174,7 @@
             {:else}
               <span class="resilient-title">INCONCLUSIVE</span>
               <p class="resilient-text">
-                Insufficient observable evidence to conclude definitive failure.
+                {getInconclusiveMessage(activeRun, activeEvents)}
               </p>
             {/if}
           </div>
