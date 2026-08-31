@@ -40,6 +40,7 @@ import {
 } from './engine/run-coordinator';
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
 import { globalPerfMonitor } from './engine/performance-monitor';
+import { sanitizeUrl } from '../shared/sanitize-url';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -109,7 +110,7 @@ function observationToEvent(obs: ObservationPayload, runId: string): HavocEvent 
     sequence: nextSequence(runId),
     type,
     source: 'page',
-    ...(isChaosInjectedSentinel ? {} : { resource: obs.url }),
+    ...(isChaosInjectedSentinel ? {} : { resource: sanitizeUrl(obs.url) }),
     correlationId: obs.observationId,
     metadata: {
       transport: obs.transport,

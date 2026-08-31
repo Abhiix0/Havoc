@@ -21,6 +21,7 @@ import {
   type FetchLatencyChaosParams,
   type FetchFailureChaosParams,
 } from '../messaging/messages';
+import { sanitizeUrl } from '../shared/sanitize-url';
 
 // ---------------------------------------------------------------------------
 // Saved originals
@@ -45,7 +46,11 @@ function generateId(): string {
 }
 
 function emitObservation(obs: ObservationPayload): void {
-  window.postMessage(createObservationMessage(obs), '*');
+  const sanitized: ObservationPayload = {
+    ...obs,
+    url: sanitizeUrl(obs.url),
+  };
+  window.postMessage(createObservationMessage(sanitized), '*');
 }
 
 /**
@@ -133,7 +138,8 @@ export function wrapFetch(): void {
   ): Promise<Response> {
     const observationId = generateId();
     const startTime = performance.now();
-    const url = input instanceof Request ? input.url : String(input);
+    const rawUrl = input instanceof Request ? input.url : String(input);
+    const url = sanitizeUrl(rawUrl);
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
 
     // Attach the active injectionId so the SW can link this observation
@@ -424,7 +430,7 @@ export function wrapXHR(): void {
       password?: string | null
     ): void {
       this._havocMethod = method.toUpperCase();
-      this._havocUrl = String(url);
+      this._havocUrl = sanitizeUrl(String(url));
       this._havocObservationId = generateId();
       super.open(method, url, async, username ?? null, password ?? null);
     }
