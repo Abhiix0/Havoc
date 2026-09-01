@@ -1,6 +1,6 @@
 # Havoc
 
-Evidence-driven browser resilience testing system. Chrome MV3 extension (V1).
+A browser chaos-engineering tool for injecting controlled failures and uncovering how applications recover.
 
 ## Project Structure
 
