@@ -3,18 +3,24 @@
   import { fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { activeTab, currentRun, TERMINAL_STATES } from '../stores/run';
+  import { startShipCheck, shipCheckLoading } from '../stores/ship-check';
   import Robot from '../components/Robot.svelte';
   import TargetCard from '../components/TargetCard.svelte';
   import Button from '../components/Button.svelte';
 
   const dispatch = createEventDispatcher<{
-    navigate: 'select' | 'history';
+    navigate: 'select' | 'history' | 'running';
   }>();
 
   $: hasTerminalRun = $currentRun !== null && TERMINAL_STATES.has($currentRun.state);
   $: capabilities = $activeTab
     ? [{ label: 'TOP-LEVEL', tone: 'neutral' as const }]
     : [{ label: 'STANDBY', tone: 'neutral' as const }];
+
+  async function handleRunShipCheck() {
+    dispatch('navigate', 'running');
+    await startShipCheck();
+  }
 </script>
 
 <div class="home-screen" in:fade={{ duration: 200, easing: cubicOut }}>
@@ -52,11 +58,19 @@
   <div class="action-section">
     <Button
       variant="primary"
-      disabled={!$activeTab}
+      disabled={!$activeTab || $shipCheckLoading}
+      on:click={handleRunShipCheck}
+    >
+      ⚡ RUN SHIP CHECK
+    </Button>
+
+    <button
+      type="button"
+      class="advanced-link"
       on:click={() => dispatch('navigate', 'select')}
     >
-      ⚡ INITIATE HAVOC
-    </Button>
+      Custom Chaos Experiments (Advanced) →
+    </button>
   </div>
 
   <!-- Last Run History Link -->
@@ -166,6 +180,8 @@
   .action-section {
     display: flex;
     flex-direction: column;
+    align-items: center;
+    gap: 8px;
     margin-top: auto;
   }
 
@@ -174,6 +190,29 @@
     padding: var(--space-3, 12px) var(--space-4, 16px);
     font-size: var(--text-base, 13px);
     letter-spacing: 0.5px;
+  }
+
+  .advanced-link {
+    background: none;
+    border: none;
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 10px;
+    color: var(--text-muted, #8A8B90);
+    cursor: pointer;
+    padding: 4px 8px;
+    transition: color 0.15s ease;
+    text-decoration: none;
+  }
+
+  .advanced-link:hover {
+    color: var(--text-primary, #F2F2F0);
+    text-decoration: underline;
+  }
+
+  .advanced-link:focus-visible {
+    outline: 2px solid var(--havoc-red, #E85C4A);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
   }
 
   .home-footer {

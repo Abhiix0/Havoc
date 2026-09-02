@@ -2,38 +2,75 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { getAllRuns, getRecoveryByRunId } from '../../../storage/repository';
+  import {
+    getAllRuns,
+    getAllShipChecks,
+    getRecoveryByRunId,
+  } from '../../../storage/repository';
   import type { ExperimentRun } from '../../../domain/run';
   import type { Recovery } from '../../../domain/recovery';
+  import type { ShipCheckRun } from '../../../domain/ship-check';
+  import { readinessToTone } from '../utils/readiness-tone';
 
   const dispatch = createEventDispatcher<{
-    navigate: { screen: 'home' | 'autopsy'; runId?: string };
+    navigate: {
+      screen: 'home' | 'autopsy' | 'results';
+      runId?: string;
+      shipCheckId?: string;
+    };
   }>();
 
-  interface HistoryItem {
-    run: ExperimentRun;
-    recovery?: Recovery;
-  }
+  type HistoryItem =
+    | {
+        type: 'run';
+        id: string;
+        run: ExperimentRun;
+        recovery?: Recovery;
+        timestamp: number;
+      }
+    | {
+        type: 'ship-check';
+        id: string;
+        shipCheck: ShipCheckRun;
+        timestamp: number;
+      };
 
   let historyItems: HistoryItem[] = [];
   let loading = true;
 
   onMount(async () => {
     try {
-      const runs = await getAllRuns();
-      // Sort newest first
-      runs.sort((a, b) => b.createdAt - a.createdAt);
+      const [runs, shipChecks] = await Promise.all([
+        getAllRuns(),
+        getAllShipChecks().catch(() => [] as ShipCheckRun[]),
+      ]);
 
-      const items: HistoryItem[] = await Promise.all(
+      const runItems: HistoryItem[] = await Promise.all(
         runs.map(async (run) => {
           const rec = await getRecoveryByRunId(run.runId);
-          return { run, recovery: rec };
+          return {
+            type: 'run' as const,
+            id: run.runId,
+            run,
+            recovery: rec,
+            timestamp: run.createdAt,
+          };
         })
       );
 
-      historyItems = items;
+      const shipCheckItems: HistoryItem[] = shipChecks.map((sc) => ({
+        type: 'ship-check' as const,
+        id: sc.shipCheckId,
+        shipCheck: sc,
+        timestamp: sc.createdAt,
+      }));
+
+      const merged = [...runItems, ...shipCheckItems];
+      merged.sort((a, b) => b.timestamp - a.timestamp);
+
+      historyItems = merged;
     } catch (e) {
-      console.error('[HAVOC][history] error loading run history', e);
+      console.error('[HAVOC][history] error loading history', e);
     } finally {
       loading = false;
     }
@@ -52,25 +89,54 @@
   }
 
   function getBadgeTone(item: HistoryItem): string {
+    if (item.type === 'ship-check') {
+      const tone = readinessToTone(item.shipCheck.readiness);
+      switch (tone) {
+        case 'success':
+          return 'recovered';
+        case 'warning':
+          return 'degraded';
+        case 'critical':
+          return 'failed';
+        case 'neutral':
+        default:
+          return 'unknown';
+      }
+    }
+
     if (item.recovery?.outcome) {
       return item.recovery.outcome.toLowerCase();
     }
     if (item.run.state === 'COMPLETED') return 'recovered';
-    if (item.run.state === 'FAILED' || item.run.state === 'ABORTED' || item.run.state === 'TIMED_OUT') {
+    if (
+      item.run.state === 'FAILED' ||
+      item.run.state === 'ABORTED' ||
+      item.run.state === 'TIMED_OUT'
+    ) {
       return 'failed';
     }
     return 'unknown';
   }
 
   function getBadgeLabel(item: HistoryItem): string {
+    if (item.type === 'ship-check') {
+      return item.shipCheck.readiness;
+    }
     if (item.recovery?.outcome) {
       return item.recovery.outcome;
     }
     return item.run.state;
   }
 
-  function handleSelectRun(runId: string) {
-    dispatch('navigate', { screen: 'autopsy', runId });
+  function handleSelectItem(item: HistoryItem) {
+    if (item.type === 'ship-check') {
+      dispatch('navigate', {
+        screen: 'results',
+        shipCheckId: item.shipCheck.shipCheckId,
+      });
+    } else {
+      dispatch('navigate', { screen: 'autopsy', runId: item.run.runId });
+    }
   }
 </script>
 
@@ -86,8 +152,8 @@
       ← HOME
     </button>
     <div class="header-titles">
-      <span class="history-title">EXPERIMENT HISTORY</span>
-      <span class="history-cap">{historyItems.length} / 25 RUNS</span>
+      <span class="history-title">HISTORY</span>
+      <span class="history-cap">{historyItems.length} RUNS</span>
     </div>
   </header>
 
@@ -95,33 +161,46 @@
   <div class="history-content">
     {#if loading}
       <div class="loading-state">
-        <span class="loading-text">Loading past experiment runs...</span>
+        <span class="loading-text">Loading past test runs...</span>
       </div>
     {:else if historyItems.length === 0}
       <div class="empty-state">
         <span class="empty-icon">◻</span>
-        <span class="empty-title">NO STORED EXPERIMENTS</span>
-        <p class="empty-desc">Completed experiments will appear here automatically.</p>
+        <span class="empty-title">NO STORED TEST RUNS</span>
+        <p class="empty-desc">Completed ship checks and experiments will appear here.</p>
       </div>
     {:else}
       <div class="runs-list">
-        {#each historyItems as item, i (item.run.runId)}
+        {#each historyItems as item, i (item.id)}
           <button
             type="button"
             class="run-row"
-            aria-label="Inspect autopsy for {item.run.definition?.name || item.run.definition?.kind}"
+            class:ship-check-row={item.type === 'ship-check'}
+            aria-label="Inspect details for {item.type === 'ship-check' ? 'Ship Check' : item.run.definition?.name}"
             in:fly={{ y: 6, duration: 180, delay: i * 35 }}
-            on:click={() => handleSelectRun(item.run.runId)}
+            on:click={() => handleSelectItem(item)}
           >
             <div class="row-left">
-              <span class="run-name">{item.run.definition?.name || item.run.definition?.kind}</span>
-              <span class="run-target" title={item.run.target?.origin || item.run.target?.url}>
-                {item.run.target?.origin || 'Top-Level'}
+              <div class="name-badge-row">
+                {#if item.type === 'ship-check'}
+                  <span class="ship-check-tag">SHIP CHECK</span>
+                  <span class="run-name">6-Step Readiness Check</span>
+                {:else}
+                  <span class="run-name">{item.run.definition?.name || item.run.definition?.kind}</span>
+                {/if}
+              </div>
+              <span
+                class="run-target"
+                title={item.type === 'ship-check' ? item.shipCheck.target?.origin : item.run.target?.origin}
+              >
+                {item.type === 'ship-check'
+                  ? item.shipCheck.target?.origin || 'Top-Level'
+                  : item.run.target?.origin || 'Top-Level'}
               </span>
             </div>
 
             <div class="row-right">
-              <span class="run-time">{formatTimeAgo(item.run.createdAt)}</span>
+              <span class="run-time">{formatTimeAgo(item.timestamp)}</span>
               <span class="outcome-badge tone-{getBadgeTone(item)}">
                 {getBadgeLabel(item)}
               </span>
@@ -278,11 +357,34 @@
     transform: scale(0.985);
   }
 
+  .ship-check-row {
+    border-left: 3px solid var(--warn-amber, #F5C451);
+  }
+
   .row-left {
     display: flex;
     flex-direction: column;
     gap: 2px;
     overflow: hidden;
+  }
+
+  .name-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .ship-check-tag {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 8.5px;
+    font-weight: 800;
+    color: var(--warn-amber, #F5C451);
+    background: rgba(245, 196, 81, 0.12);
+    border: 1px solid rgba(245, 196, 81, 0.3);
+    border-radius: var(--radius-sm, 4px);
+    padding: 1px 4px;
+    flex-shrink: 0;
   }
 
   .run-name {

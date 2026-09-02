@@ -6,6 +6,7 @@
 
   export let finding: Finding;
   export let remediation: Remediation | undefined = undefined;
+  export let summaryOnly: boolean = false;
 
   let meterWidth = 0;
 
@@ -21,8 +22,19 @@
   $: confidencePct = Math.round((finding.confidence ?? 0) * 100);
 </script>
 
-<div class="finding-card sev-{severity.toLowerCase()}">
-  {#if remediation}
+<div class="finding-card sev-{severity.toLowerCase()}" class:summary-card={summaryOnly}>
+  {#if summaryOnly}
+    <div class="summary-header">
+      <div class="remediation-title-row">
+        <span class="sev-badge sev-badge-{severity.toLowerCase()}">
+          [{severity}]
+        </span>
+        <h4 class="remediation-title">{remediation?.title ?? finding.checkKind ?? 'Finding'}</h4>
+      </div>
+      <slot name="action" />
+    </div>
+    <p class="summary-desc">{remediation?.whatHappened ?? finding.description}</p>
+  {:else if remediation}
     <div class="remediation-header">
       <div class="remediation-title-row">
         <span class="sev-badge sev-badge-{severity.toLowerCase()}">
@@ -299,5 +311,29 @@
     flex-direction: column;
     gap: var(--space-2, 8px);
     padding-top: 8px;
+  }
+
+  .summary-card {
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    gap: 4px;
+  }
+
+  .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .summary-desc {
+    margin: 0;
+    font-size: var(--text-xs, 11px);
+    color: var(--text-muted, #8A8B90);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 </style>
