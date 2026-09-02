@@ -42,6 +42,7 @@ export interface FindingEngineInput {
   eventIndex: Map<string, HavocEvent>;
   /** Full signal map so we can wrap them in Evidence. */
   signalIndex: Map<string, Signal>;
+  checkKind?: import('../../domain/ship-check').ShipCheckStepKind | undefined;
 }
 
 export interface FindingEngineResult {
@@ -103,7 +104,7 @@ function describeOutcome(
  * @returns       A FindingEngineResult with the finding (or null) and all evidence.
  */
 export function deriveFinding(input: FindingEngineInput): FindingEngineResult {
-  const { runId, recovery, contributingEventIds, contributingSignalIds, eventIndex, signalIndex } = input;
+  const { runId, recovery, contributingEventIds, contributingSignalIds, eventIndex, signalIndex, checkKind } = input;
 
   // ── Build Evidence ────────────────────────────────────────────────────────
   // Wrap every contributing event and signal in an Evidence object.
@@ -178,6 +179,7 @@ export function deriveFinding(input: FindingEngineInput): FindingEngineResult {
     ),
     evidenceIds,
     recoveryId: recovery.id,
+    ...(checkKind !== undefined && { checkKind }),
   };
 
   console.log(
@@ -197,7 +199,8 @@ export function deriveFromRecoveryResult(
   runId: string,
   result: RecoveryWindowResult,
   eventIndex: Map<string, HavocEvent>,
-  signalIndex: Map<string, Signal>
+  signalIndex: Map<string, Signal>,
+  checkKind?: import('../../domain/ship-check').ShipCheckStepKind
 ): FindingEngineResult {
   return deriveFinding({
     runId,
@@ -206,6 +209,7 @@ export function deriveFromRecoveryResult(
     contributingSignalIds: result.contributingSignalIds,
     eventIndex,
     signalIndex,
+    checkKind,
   });
 }
 
@@ -218,7 +222,8 @@ export function deriveFindingFromRuntimeErrors(
   errorEvents: HavocEvent[],
   errorSignals: Signal[],
   eventIndex: Map<string, HavocEvent>,
-  signalIndex: Map<string, Signal>
+  signalIndex: Map<string, Signal>,
+  checkKind: import('../../domain/ship-check').ShipCheckStepKind = 'runtime_errors'
 ): FindingEngineResult {
   const evidence: Evidence[] = [];
 
@@ -262,6 +267,7 @@ export function deriveFindingFromRuntimeErrors(
     confidence,
     description,
     evidenceIds: evidence.map((e) => e.id),
+    checkKind,
   };
 
   console.log(
@@ -282,7 +288,8 @@ export function deriveFindingFromSecretMatches(
   matchEvents: HavocEvent[],
   matchSignals: Signal[],
   eventIndex: Map<string, HavocEvent>,
-  signalIndex: Map<string, Signal>
+  signalIndex: Map<string, Signal>,
+  checkKind: import('../../domain/ship-check').ShipCheckStepKind = 'secret_scan'
 ): FindingEngineResult {
   const evidence: Evidence[] = [];
 
@@ -335,6 +342,7 @@ export function deriveFindingFromSecretMatches(
     confidence,
     description,
     evidenceIds: evidence.map((e) => e.id),
+    checkKind,
   };
 
   console.log(

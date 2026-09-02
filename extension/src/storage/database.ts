@@ -1,5 +1,5 @@
 const DB_NAME = 'havoc';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORES = {
   runs: 'runs',
@@ -8,6 +8,7 @@ export const STORES = {
   findings: 'findings',
   evidence: 'evidence',
   recovery: 'recovery',
+  remediations: 'remediations',
 } as const;
 
 let _cachedDb: IDBDatabase | null = null;
@@ -50,6 +51,12 @@ export function openDatabase(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(STORES.recovery)) {
         db.createObjectStore(STORES.recovery, { keyPath: 'id' }).createIndex('runId', 'runId');
+      }
+
+      if (!db.objectStoreNames.contains(STORES.remediations)) {
+        const remediations = db.createObjectStore(STORES.remediations, { keyPath: 'id' });
+        remediations.createIndex('findingId', 'findingId');
+        remediations.createIndex('runId', 'runId');
       }
     };
 

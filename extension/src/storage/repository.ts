@@ -22,6 +22,7 @@ import type { Signal } from '../domain/signal';
 import type { Finding } from '../domain/finding';
 import type { Evidence } from '../domain/evidence';
 import type { Recovery } from '../domain/recovery';
+import type { Remediation } from '../domain/remediation';
 
 export const MAX_RUNS_RETENTION = 25;
 
@@ -190,12 +191,28 @@ export async function getRecoveryByRunId(runId: string): Promise<Recovery | unde
 }
 
 // ---------------------------------------------------------------------------
+// Remediation Store Operations
+// ---------------------------------------------------------------------------
+
+export async function saveRemediation(remediation: Remediation): Promise<void> {
+  return putItem(STORES.remediations, remediation);
+}
+
+export async function getRemediationsByFindingId(findingId: string): Promise<Remediation[]> {
+  return getByIndex<Remediation>(STORES.remediations, 'findingId', findingId);
+}
+
+export async function getRemediationsByRunId(runId: string): Promise<Remediation[]> {
+  return getByIndex<Remediation>(STORES.remediations, 'runId', runId);
+}
+
+// ---------------------------------------------------------------------------
 // Cascade Deletion & Retention
 // ---------------------------------------------------------------------------
 
 /**
  * Cascade-delete a run and ALL associated records across events, signals,
- * findings, evidence, and recovery in a single atomic transaction.
+ * findings, evidence, recovery, and remediations in a single atomic transaction.
  * Guarantees zero orphaned records.
  */
 export async function deleteRunCascade(runId: string): Promise<void> {
@@ -209,6 +226,7 @@ export async function deleteRunCascade(runId: string): Promise<void> {
         STORES.findings,
         STORES.evidence,
         STORES.recovery,
+        STORES.remediations,
       ],
       'readwrite'
     );
@@ -227,6 +245,7 @@ export async function deleteRunCascade(runId: string): Promise<void> {
       STORES.findings,
       STORES.evidence,
       STORES.recovery,
+      STORES.remediations,
     ] as const;
 
     for (const storeName of childStores) {

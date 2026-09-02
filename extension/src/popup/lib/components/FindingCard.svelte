@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { Finding } from '../../../domain/finding';
+  import type { Remediation } from '../../../domain/remediation';
+  import FixPromptBox from './FixPromptBox.svelte';
 
   export let finding: Finding;
+  export let remediation: Remediation | undefined = undefined;
 
   let meterWidth = 0;
 
@@ -19,29 +22,89 @@
 </script>
 
 <div class="finding-card sev-{severity.toLowerCase()}">
-  <div class="finding-header">
-    <span class="sev-badge sev-badge-{severity.toLowerCase()}">
-      [{severity} SEVERITY]
-    </span>
-    <div class="confidence-meter-group">
-      <span class="conf-text">CONFIDENCE {confidencePct}%</span>
-      <div class="meter-track">
-        <div
-          class="meter-fill sev-fill-{severity.toLowerCase()}"
-          style="width: {meterWidth}%;"
-        />
+  {#if remediation}
+    <div class="remediation-header">
+      <div class="remediation-title-row">
+        <span class="sev-badge sev-badge-{severity.toLowerCase()}">
+          [{severity} SEVERITY]
+        </span>
+        <h4 class="remediation-title">{remediation.title}</h4>
       </div>
     </div>
-  </div>
 
-  <p class="finding-desc">{finding.description}</p>
+    <div class="remediation-body">
+      <div class="rem-section">
+        <span class="rem-label">WHAT HAPPENED</span>
+        <p class="rem-text">{remediation.whatHappened}</p>
+      </div>
 
-  <footer class="finding-footer">
-    <span class="evidence-tag">EVIDENCE: {finding.evidenceIds?.length ?? 0} RECORDS</span>
-    {#if finding.recoveryId}
-      <span class="rec-id">REC: {finding.recoveryId.slice(0, 8)}</span>
-    {/if}
-  </footer>
+      <div class="rem-section">
+        <span class="rem-label">WHY IT MATTERS</span>
+        <p class="rem-text">{remediation.whyItMatters}</p>
+      </div>
+
+      <div class="rem-section">
+        <span class="rem-label">HOW TO FIX IT</span>
+        <ol class="rem-list">
+          {#each remediation.howToFix as step}
+            <li>{step}</li>
+          {/each}
+        </ol>
+      </div>
+
+      <FixPromptBox fixPrompt={remediation.fixPrompt} />
+    </div>
+
+    <details class="tech-details">
+      <summary class="tech-summary">Technical evidence</summary>
+      <div class="tech-content">
+        <div class="finding-header">
+          <div class="confidence-meter-group">
+            <span class="conf-text">CONFIDENCE {confidencePct}%</span>
+            <div class="meter-track">
+              <div
+                class="meter-fill sev-fill-{severity.toLowerCase()}"
+                style="width: {meterWidth}%;"
+              />
+            </div>
+          </div>
+        </div>
+
+        <p class="finding-desc">{finding.description}</p>
+
+        <footer class="finding-footer">
+          <span class="evidence-tag">EVIDENCE: {finding.evidenceIds?.length ?? 0} RECORDS</span>
+          {#if finding.recoveryId}
+            <span class="rec-id">REC: {finding.recoveryId.slice(0, 8)}</span>
+          {/if}
+        </footer>
+      </div>
+    </details>
+  {:else}
+    <div class="finding-header">
+      <span class="sev-badge sev-badge-{severity.toLowerCase()}">
+        [{severity} SEVERITY]
+      </span>
+      <div class="confidence-meter-group">
+        <span class="conf-text">CONFIDENCE {confidencePct}%</span>
+        <div class="meter-track">
+          <div
+            class="meter-fill sev-fill-{severity.toLowerCase()}"
+            style="width: {meterWidth}%;"
+          />
+        </div>
+      </div>
+    </div>
+
+    <p class="finding-desc">{finding.description}</p>
+
+    <footer class="finding-footer">
+      <span class="evidence-tag">EVIDENCE: {finding.evidenceIds?.length ?? 0} RECORDS</span>
+      {#if finding.recoveryId}
+        <span class="rec-id">REC: {finding.recoveryId.slice(0, 8)}</span>
+      {/if}
+    </footer>
+  {/if}
 </div>
 
 <style>
@@ -152,5 +215,89 @@
     font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
     font-size: 9px;
     color: var(--text-muted, #8A8B90);
+  }
+
+  .remediation-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .remediation-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .remediation-title {
+    margin: 0;
+    font-size: var(--text-sm, 13px);
+    font-weight: 600;
+    color: var(--text-primary, #F2F2F0);
+  }
+
+  .remediation-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  .rem-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .rem-label {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #8A8B90);
+  }
+
+  .rem-text {
+    margin: 0;
+    font-size: var(--text-xs, 11px);
+    color: var(--text-primary, #F2F2F0);
+    line-height: 1.45;
+  }
+
+  .rem-list {
+    margin: 0;
+    padding-left: 16px;
+    font-size: var(--text-xs, 11px);
+    color: var(--text-primary, #F2F2F0);
+    line-height: 1.45;
+  }
+
+  .rem-list li {
+    margin-bottom: 2px;
+  }
+
+  .tech-details {
+    margin-top: 8px;
+    border-top: 1px dashed var(--border, #2A2B30);
+    padding-top: 6px;
+  }
+
+  .tech-summary {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 9px;
+    color: var(--text-muted, #8A8B90);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .tech-summary:hover {
+    color: var(--text-primary, #F2F2F0);
+  }
+
+  .tech-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    padding-top: 8px;
   }
 </style>

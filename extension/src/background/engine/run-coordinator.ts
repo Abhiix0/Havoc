@@ -267,7 +267,8 @@ export async function startRun(
       run.runId,
       recoveryResult,
       eventIndex,
-      signalIndex
+      signalIndex,
+      run.definition.kind
     );
 
     // Persist recovery, evidence, and finding

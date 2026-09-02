@@ -8,4 +8,5 @@ export interface Finding {
   description: string;
   evidenceIds: string[];
   recoveryId?: string;
+  checkKind?: import('./ship-check').ShipCheckStepKind;
 }

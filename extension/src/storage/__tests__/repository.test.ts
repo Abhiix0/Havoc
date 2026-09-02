@@ -17,6 +17,9 @@ import {
   getEvidenceByRunId,
   saveRecovery,
   getRecoveryByRunId,
+  saveRemediation,
+  getRemediationsByFindingId,
+  getRemediationsByRunId,
   deleteRunCascade,
   applyRetention,
 } from '../repository';
@@ -26,6 +29,7 @@ import type { Signal } from '../../domain/signal';
 import type { Finding } from '../../domain/finding';
 import type { Evidence } from '../../domain/evidence';
 import type { Recovery } from '../../domain/recovery';
+import type { Remediation } from '../../domain/remediation';
 
 import { closeDatabase } from '../database';
 
@@ -309,5 +313,62 @@ describe('HAVOC Storage Repository', () => {
       expect(events).toHaveLength(1);
       expect(signals).toHaveLength(1);
     }
+  });
+
+  it('saves, retrieves, and cascade-deletes remediations with zero orphans', async () => {
+    const runId = 'run-rem-test';
+    const findingId = 'finding-rem-test';
+
+    const run: ExperimentRun = {
+      runId,
+      target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
+      definition: { id: 'exp-1', name: 'Failure Test', description: 'Test', kind: 'fetch_failure', params: {} },
+      state: 'COMPLETED',
+      createdAt: 1000,
+      updatedAt: 2000,
+    };
+
+    const finding: Finding = {
+      id: findingId,
+      runId,
+      severity: 'HIGH',
+      confidence: 0.95,
+      description: 'App failed',
+      evidenceIds: [],
+    };
+
+    const remediation: Remediation = {
+      id: 'rem-1',
+      findingId,
+      runId,
+      title: 'Fix API error handling',
+      whatHappened: 'Requests failed',
+      whyItMatters: 'Users see broken UI',
+      howToFix: ['Add error banner', 'Add retry button'],
+      fixPrompt: 'Fix the API error handling',
+    };
+
+    await saveRun(run);
+    await saveFinding(finding);
+    await saveRemediation(remediation);
+
+    // Retrieve by findingId
+    const byFinding = await getRemediationsByFindingId(findingId);
+    expect(byFinding).toHaveLength(1);
+    expect(byFinding[0]).toEqual(remediation);
+
+    // Retrieve by runId
+    const byRun = await getRemediationsByRunId(runId);
+    expect(byRun).toHaveLength(1);
+    expect(byRun[0]).toEqual(remediation);
+
+    // Cascade delete run
+    await deleteRunCascade(runId);
+
+    // Verify all records purged
+    expect(await getRun(runId)).toBeUndefined();
+    expect(await getFindingsByRunId(runId)).toEqual([]);
+    expect(await getRemediationsByFindingId(findingId)).toEqual([]);
+    expect(await getRemediationsByRunId(runId)).toEqual([]);
   });
 });
