@@ -23,6 +23,7 @@ import type { Finding } from '../domain/finding';
 import type { Evidence } from '../domain/evidence';
 import type { Recovery } from '../domain/recovery';
 import type { Remediation } from '../domain/remediation';
+import type { ShipCheckRun } from '../domain/ship-check';
 
 export const MAX_RUNS_RETENTION = 25;
 
@@ -204,6 +205,22 @@ export async function getRemediationsByFindingId(findingId: string): Promise<Rem
 
 export async function getRemediationsByRunId(runId: string): Promise<Remediation[]> {
   return getByIndex<Remediation>(STORES.remediations, 'runId', runId);
+}
+
+// ---------------------------------------------------------------------------
+// Ship Check Store Operations
+// ---------------------------------------------------------------------------
+
+export async function saveShipCheck(shipCheck: ShipCheckRun): Promise<void> {
+  return putItem(STORES.shipChecks, shipCheck);
+}
+
+export async function getShipCheck(shipCheckId: string): Promise<ShipCheckRun | undefined> {
+  return getItem<ShipCheckRun>(STORES.shipChecks, shipCheckId);
+}
+
+export async function getAllShipChecks(): Promise<ShipCheckRun[]> {
+  return getAllItems<ShipCheckRun>(STORES.shipChecks);
 }
 
 // ---------------------------------------------------------------------------

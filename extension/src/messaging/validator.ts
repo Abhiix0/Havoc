@@ -231,6 +231,9 @@ const VALID_RUNTIME_TYPES: ReadonlySet<RuntimeMessageType> = new Set([
   'RUN_STATE_UPDATE',
   'ABORT_RUN',
   'PASSIVE_RUN_STATE_UPDATE',
+  'CREATE_SHIP_CHECK',
+  'CREATE_SHIP_CHECK_RESPONSE',
+  'SHIP_CHECK_STEP_UPDATE',
 ]);
 
 function isRuntimeMessageBase(data: unknown): data is { type: RuntimeMessageType } {
@@ -278,4 +281,22 @@ export function isPassiveRunStateUpdateMessage(
 
 export function isAbortRunMessage(data: unknown): data is import('./messages').AbortRunMessage {
   return isRuntimeMessageBase(data) && data.type === 'ABORT_RUN';
+}
+
+export function isCreateShipCheckMessage(
+  data: unknown
+): data is import('./messages').CreateShipCheckMessage {
+  return isRuntimeMessageBase(data) && data.type === 'CREATE_SHIP_CHECK';
+}
+
+export function isCreateShipCheckResponseMessage(
+  data: unknown
+): data is import('./messages').CreateShipCheckResponseMessage {
+  return isRuntimeMessageBase(data) && data.type === 'CREATE_SHIP_CHECK_RESPONSE';
+}
+
+export function isShipCheckStepUpdateMessage(
+  data: unknown
+): data is import('./messages').ShipCheckStepUpdateMessage {
+  return isRuntimeMessageBase(data) && data.type === 'SHIP_CHECK_STEP_UPDATE';
 }

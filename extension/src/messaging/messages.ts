@@ -1,5 +1,6 @@
 import type { ExperimentRun, ExperimentState } from '../domain/run';
 import type { PassiveCheckRun, PassiveCheckState } from '../domain/passive-check';
+import type { ShipCheckRun } from '../domain/ship-check';
 import type { ExperimentDefinition } from '../domain/experiment';
 import type { Target } from '../domain/target';
 
@@ -41,7 +42,10 @@ export type RuntimeMessageType =
   | 'CREATE_RUN_RESPONSE'
   | 'RUN_STATE_UPDATE'
   | 'ABORT_RUN'
-  | 'PASSIVE_RUN_STATE_UPDATE';
+  | 'PASSIVE_RUN_STATE_UPDATE'
+  | 'CREATE_SHIP_CHECK'
+  | 'CREATE_SHIP_CHECK_RESPONSE'
+  | 'SHIP_CHECK_STEP_UPDATE';
 
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
@@ -403,5 +407,56 @@ export function createAbortRunMessage(): AbortRunMessage {
     namespace: HAVOC_NAMESPACE,
     version: BRIDGE_PROTOCOL_VERSION,
     type: 'ABORT_RUN',
+  };
+}
+
+export interface CreateShipCheckMessage extends RuntimeMessage {
+  type: 'CREATE_SHIP_CHECK';
+  target?: Target;
+}
+
+export interface CreateShipCheckResponseMessage extends RuntimeMessage {
+  type: 'CREATE_SHIP_CHECK_RESPONSE';
+  shipCheck?: ShipCheckRun;
+  error?: string;
+}
+
+export interface ShipCheckStepUpdateMessage extends RuntimeMessage {
+  type: 'SHIP_CHECK_STEP_UPDATE';
+  shipCheck: ShipCheckRun | null;
+}
+
+export function createCreateShipCheckMessage(
+  target?: Target
+): CreateShipCheckMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'CREATE_SHIP_CHECK',
+    ...(target !== undefined && { target }),
+  };
+}
+
+export function createCreateShipCheckResponseMessage(
+  shipCheck: ShipCheckRun | undefined,
+  error?: string
+): CreateShipCheckResponseMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'CREATE_SHIP_CHECK_RESPONSE',
+    ...(shipCheck !== undefined && { shipCheck }),
+    ...(error !== undefined && { error }),
+  };
+}
+
+export function createShipCheckStepUpdateMessage(
+  shipCheck: ShipCheckRun | null
+): ShipCheckStepUpdateMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'SHIP_CHECK_STEP_UPDATE',
+    shipCheck,
   };
 }

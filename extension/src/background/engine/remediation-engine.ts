@@ -14,7 +14,7 @@ import type { Remediation } from '../../domain/remediation';
 export interface RemediationContext {
   events: HavocEvent[];
   signals: Signal[];
-  recoveryOutcome?: Recovery['outcome'];
+  recoveryOutcome?: Recovery['outcome'] | undefined;
 }
 
 export function deriveRemediation(

@@ -17,6 +17,7 @@ import {
   createBridgeMessage,
   createCurrentRunResponseMessage,
   createCreateRunResponseMessage,
+  createCreateShipCheckResponseMessage,
   type ObservationPayload,
   type DomObservationPayload,
 } from '../messaging/messages';
@@ -28,6 +29,7 @@ import {
   isDomObservationMessage,
   isAbortRunMessage,
   isRuntimeErrorObservationMessage,
+  isCreateShipCheckMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { saveEvent, saveSignals } from '../storage/repository';
@@ -48,6 +50,7 @@ import {
 } from './engine/runtime-error-observer';
 import { secretScannerExecutor } from './engine/secret-scanner';
 import { registerPassiveCheckExecutor } from './engine/passive-check-runner';
+import { startShipCheck } from './engine/ship-check-orchestrator';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -245,6 +248,35 @@ export function handleIncomingMessage(
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         sendResponse(createCreateRunResponseMessage(undefined, msg));
+      }
+    })();
+    return true;
+  }
+
+  // --- CREATE_SHIP_CHECK (popup → SW) ---
+  if (isCreateShipCheckMessage(message)) {
+    (async () => {
+      try {
+        let target: Target | null = message.target ?? null;
+        if (target === null) target = await resolveActiveTab();
+        if (target === null) {
+          sendResponse(
+            createCreateShipCheckResponseMessage(
+              undefined,
+              'Could not resolve a target tab — open a web page first'
+            )
+          );
+          return;
+        }
+
+        sendResponse(createCreateShipCheckResponseMessage(undefined));
+
+        startShipCheck(target).catch((err: unknown) => {
+          console.error('[HAVOC][SW] startShipCheck error:', err);
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        sendResponse(createCreateShipCheckResponseMessage(undefined, msg));
       }
     })();
     return true;
