@@ -42,6 +42,7 @@ import {
   getSignalsByRunId,
   getRecoveryByRunId,
   saveRemediation,
+  applyShipCheckRetention,
 } from '../../storage/repository';
 
 export const SHIP_CHECK_STEPS: Array<{
@@ -270,6 +271,10 @@ export async function startShipCheck(target: Target): Promise<ShipCheckRun> {
     console.error('[HAVOC][ship-check] failed to persist final ship check state:', err);
   });
   broadcastShipCheckUpdate(shipCheckRun);
+
+  applyShipCheckRetention().catch((err: unknown) => {
+    console.error('[HAVOC][ship-check] retention error:', err);
+  });
 
   return shipCheckRun;
 }

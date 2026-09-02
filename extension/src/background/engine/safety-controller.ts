@@ -17,9 +17,11 @@
 
 import type { Target } from '../../domain/target';
 
+// TAB_ID_MISMATCH was removed as dead code: verifyTarget fetches the tab using
+// chrome.tabs.get(target.tabId), so any found tab is guaranteed to match target.tabId.
 export type TargetVerificationResult =
   | { ok: true }
-  | { ok: false; reason: 'TAB_NOT_FOUND' | 'ORIGIN_MISMATCH' | 'TAB_ID_MISMATCH' | 'TAB_LOADING'; detail: string };
+  | { ok: false; reason: 'TAB_NOT_FOUND' | 'ORIGIN_MISMATCH' | 'TAB_LOADING'; detail: string };
 
 /**
  * Verify that the tab described by `target` still exists, is still on the

@@ -22,6 +22,10 @@ import {
   getRemediationsByRunId,
   deleteRunCascade,
   applyRetention,
+  saveShipCheck,
+  getShipCheck,
+  getAllShipChecks,
+  applyShipCheckRetention,
 } from '../repository';
 import type { ExperimentRun } from '../../domain/run';
 import type { HavocEvent } from '../../domain/event';
@@ -30,6 +34,7 @@ import type { Finding } from '../../domain/finding';
 import type { Evidence } from '../../domain/evidence';
 import type { Recovery } from '../../domain/recovery';
 import type { Remediation } from '../../domain/remediation';
+import type { ShipCheckRun } from '../../domain/ship-check';
 
 import { closeDatabase } from '../database';
 
@@ -370,5 +375,82 @@ describe('HAVOC Storage Repository', () => {
     expect(await getFindingsByRunId(runId)).toEqual([]);
     expect(await getRemediationsByFindingId(findingId)).toEqual([]);
     expect(await getRemediationsByRunId(runId)).toEqual([]);
+  });
+
+  it('applyShipCheckRetention keeps the most recent 25 ship checks and cascade-deletes step runs', async () => {
+    // Populate 28 Ship Checks with child run, event, and finding records
+    for (let i = 1; i <= 28; i++) {
+      const scId = `sc-${i}`;
+      const stepRunId = `step-run-${i}`;
+      const createdAt = 1000 * i;
+
+      const sc: ShipCheckRun = {
+        shipCheckId: scId,
+        target: { tabId: 1, origin: 'https://example.com', url: 'https://example.com', frameId: 0 },
+        steps: [
+          { kind: 'runtime_errors', runId: stepRunId, status: 'DONE' },
+        ],
+        createdAt,
+        completedAt: createdAt + 500,
+        readiness: 'READY',
+      };
+
+      const stepRun: ExperimentRun = {
+        runId: stepRunId,
+        target: sc.target,
+        definition: { id: `def-${i}`, name: 'Test', description: 'Test', kind: 'fetch_latency', params: {} },
+        state: 'COMPLETED',
+        createdAt,
+        updatedAt: createdAt + 500,
+      };
+
+      const event: HavocEvent = {
+        id: `event-${i}`,
+        runId: stepRunId,
+        timestamp: createdAt + 100,
+        sequence: 1,
+        type: 'DOM_OBSERVATION',
+        source: 'content',
+      };
+
+      const finding: Finding = {
+        id: `finding-${i}`,
+        runId: stepRunId,
+        severity: 'MEDIUM',
+        confidence: 0.9,
+        description: `Finding for step ${i}`,
+        evidenceIds: [],
+      };
+
+      await saveShipCheck(sc);
+      await saveRun(stepRun);
+      await saveEvent(event);
+      await saveFinding(finding);
+    }
+
+    const allBefore = await getAllShipChecks();
+    expect(allBefore).toHaveLength(28);
+
+    const evictedIds = await applyShipCheckRetention(25);
+    expect(evictedIds).toEqual(['sc-1', 'sc-2', 'sc-3']);
+
+    const allAfter = await getAllShipChecks();
+    expect(allAfter).toHaveLength(25);
+
+    // Verify oldest 3 ship checks and their step runs are completely purged
+    for (let i = 1; i <= 3; i++) {
+      expect(await getShipCheck(`sc-${i}`)).toBeUndefined();
+      expect(await getRun(`step-run-${i}`)).toBeUndefined();
+      expect(await getEventsByRunId(`step-run-${i}`)).toEqual([]);
+      expect(await getFindingsByRunId(`step-run-${i}`)).toEqual([]);
+    }
+
+    // Verify retained 25 ship checks and their step runs are intact
+    for (let i = 4; i <= 28; i++) {
+      expect(await getShipCheck(`sc-${i}`)).toBeDefined();
+      expect(await getRun(`step-run-${i}`)).toBeDefined();
+      expect(await getEventsByRunId(`step-run-${i}`)).toHaveLength(1);
+      expect(await getFindingsByRunId(`step-run-${i}`)).toHaveLength(1);
+    }
   });
 });

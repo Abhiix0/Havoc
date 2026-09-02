@@ -305,3 +305,49 @@ export async function applyRetention(maxRuns: number = MAX_RUNS_RETENTION): Prom
 
   return evictedIds;
 }
+
+/**
+ * Retain only the most recent `maxShipChecks` (default 25) Ship Checks.
+ * Evicts older Ship Checks, cascade-deletes each step's run records,
+ * and deletes the ShipCheckRun record from the shipChecks store.
+ * Returns the list of evicted Ship Check IDs.
+ */
+export async function applyShipCheckRetention(
+  maxShipChecks: number = MAX_RUNS_RETENTION
+): Promise<string[]> {
+  const shipChecks = await getAllShipChecks();
+  if (shipChecks.length <= maxShipChecks) {
+    return [];
+  }
+
+  // Sort ship checks oldest first by createdAt
+  shipChecks.sort((a, b) => a.createdAt - b.createdAt);
+
+  const evictCount = shipChecks.length - maxShipChecks;
+  const toEvict = shipChecks.slice(0, evictCount);
+  const evictedIds: string[] = [];
+
+  const db = await openDatabase();
+
+  for (const sc of toEvict) {
+    // 1. Cascade delete all underlying steps' run data
+    for (const step of sc.steps) {
+      if (step.runId) {
+        await deleteRunCascade(step.runId);
+      }
+    }
+
+    // 2. Delete the ShipCheckRun record itself
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([STORES.shipChecks], 'readwrite');
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+      tx.objectStore(STORES.shipChecks).delete(sc.shipCheckId);
+    });
+
+    evictedIds.push(sc.shipCheckId);
+    console.log(`[HAVOC][retention] evicted ship check ${sc.shipCheckId}`);
+  }
+
+  return evictedIds;
+}

@@ -25,6 +25,7 @@ vi.mock('../../../storage/repository', () => ({
   getSignalsByRunId: vi.fn().mockResolvedValue([]),
   getRecoveryByRunId: vi.fn().mockResolvedValue(undefined),
   saveRemediation: vi.fn().mockResolvedValue(undefined),
+  applyShipCheckRetention: vi.fn().mockResolvedValue([]),
 }));
 
 import { verifyTarget } from '../safety-controller';
