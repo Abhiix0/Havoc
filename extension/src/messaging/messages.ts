@@ -186,7 +186,8 @@ export type DomMutationKind =
   | 'loading_indicator_appeared'
   | 'loading_indicator_removed'
   | 'error_text_appeared'
-  | 'aria_live_changed';
+  | 'aria_live_changed'
+  | 'layout_overflow_detected';
 
 export interface DomObservationPayload {
   /** Monotonic timestamp from the MutationObserver record (performance.now() basis). */

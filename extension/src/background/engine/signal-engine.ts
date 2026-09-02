@@ -455,6 +455,43 @@ function deriveSecretPatternDetected(
 }
 
 // ---------------------------------------------------------------------------
+// Deriver 6 — LayoutOverflowDetected
+// ---------------------------------------------------------------------------
+
+function deriveLayoutOverflow(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (!isDomObservationEvent(event)) return null;
+  if (event.metadata.kind !== 'layout_overflow_detected') return null;
+
+  const fingerprint = `LayoutOverflowDetected:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+
+  const derivedFrom: string[] = [event.id];
+  let confidence = 0.85;
+
+  const chaosEvent = buf.events.find(
+    (e) =>
+      e.type === 'CHAOS_INJECTED' &&
+      e.runId === event.runId &&
+      e.metadata?.kind === 'viewport_stress'
+  );
+  if (chaosEvent !== undefined) {
+    confidence += 0.10;
+    derivedFrom.push(chaosEvent.id);
+  }
+
+  buf.emitted.add(fingerprint);
+  return makeSignal(
+    'LayoutOverflowDetected',
+    event.runId,
+    Math.min(confidence, 0.95),
+    derivedFrom
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -502,6 +539,9 @@ export function processEvent(event: HavocEvent, context?: SignalContext): Signal
 
   const s5 = deriveSecretPatternDetected(event, buf);
   if (s5 !== null) signals.push(s5);
+
+  const s6 = deriveLayoutOverflow(event, buf);
+  if (s6 !== null) signals.push(s6);
 
   signals.forEach(logSignal);
   return signals;
@@ -555,6 +595,20 @@ function deriveSignalsFromBuffer(buf: RunBuffer): Signal[] {
     }
     if (buf.emitted.has(`SecretPatternDetected:${event.id}`)) {
       signals.push(makeSignal('SecretPatternDetected', event.runId, 0.60, [event.id]));
+    }
+    if (buf.emitted.has(`LayoutOverflowDetected:${event.id}`)) {
+      const chaosEvent = buf.events.find(
+        (e) =>
+          e.type === 'CHAOS_INJECTED' &&
+          e.runId === event.runId &&
+          e.metadata?.kind === 'viewport_stress'
+      );
+      const confidence = chaosEvent !== undefined ? 0.95 : 0.85;
+      const derivedFrom = [event.id];
+      if (chaosEvent !== undefined) {
+        derivedFrom.push(chaosEvent.id);
+      }
+      signals.push(makeSignal('LayoutOverflowDetected', event.runId, confidence, derivedFrom));
     }
   }
   return signals;

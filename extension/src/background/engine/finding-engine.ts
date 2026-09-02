@@ -353,3 +353,66 @@ export function deriveFindingFromSecretMatches(
 
   return { finding, evidence };
 }
+
+/**
+ * Derive a Finding for viewport stress layout overflow detections.
+ * Zero overflow signals is a clean negative (null finding).
+ */
+export function deriveFindingFromLayoutOverflow(
+  runId: string,
+  overflowSignals: Signal[],
+  eventIndex: Map<string, HavocEvent>,
+  signalIndex: Map<string, Signal>
+): FindingEngineResult {
+  const evidence: Evidence[] = [];
+
+  for (const signal of overflowSignals) {
+    if (signalIndex.has(signal.id)) {
+      evidence.push(makeEvidence(runId, 'signal', signal.id));
+    }
+    for (const eventId of signal.derivedFrom) {
+      if (eventIndex.has(eventId)) {
+        evidence.push(makeEvidence(runId, 'event', eventId));
+      }
+    }
+  }
+
+  if (overflowSignals.length === 0) {
+    return { finding: null, evidence: [] };
+  }
+
+  const confidenceSum = overflowSignals.reduce((sum, s) => sum + s.confidence, 0);
+  const confidence = confidenceSum / overflowSignals.length;
+
+  const snippets = overflowSignals.flatMap((s) =>
+    s.derivedFrom
+      .map((eid) => eventIndex.get(eid))
+      .filter((e): e is HavocEvent => e !== undefined && e.type === 'DOM_OBSERVATION')
+      .map((e) => (typeof e.metadata?.textSnippet === 'string' ? e.metadata.textSnippet : ''))
+      .filter((t) => t.length > 0)
+  );
+
+  const distinctSnippets = Array.from(new Set(snippets));
+  const snippetText = distinctSnippets.length > 0 ? `: ${distinctSnippets.join(', ')}` : '';
+
+  const description =
+    `Horizontal layout overflow detected during viewport stress testing${snippetText}. Content exceeds viewport width.`;
+
+  const finding: Finding = {
+    id: crypto.randomUUID(),
+    runId,
+    severity: 'MEDIUM',
+    confidence,
+    description,
+    evidenceIds: evidence.map((e) => e.id),
+    checkKind: 'viewport_stress',
+  };
+
+  console.log(
+    `[HAVOC][finding] ${finding.severity} confidence=${finding.confidence.toFixed(2)}`,
+    `layout_overflow_signals=${overflowSignals.length}`,
+    `evidence=${evidence.length}`
+  );
+
+  return { finding, evidence };
+}

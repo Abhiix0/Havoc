@@ -348,4 +348,101 @@ describe('Signal Engine — Causal Plausibility & Gating Tests', () => {
       expect(snapshot.signals[0]?.derivedFrom).toEqual(['evt-secret-snap-1']);
     });
   });
+
+  describe('Layout overflow signal derivation', () => {
+    it('emits LayoutOverflowDetected signal with confidence === 0.85 when no CHAOS_INJECTED is in buffer', () => {
+      const overflowEvent: HavocEvent = {
+        id: 'evt-overflow-1',
+        runId,
+        timestamp: 2000,
+        sequence: 1,
+        type: 'DOM_OBSERVATION',
+        source: 'content',
+        metadata: {
+          kind: 'layout_overflow_detected',
+          selector: 'html',
+          textSnippet: 'overflow 120px',
+        },
+      };
+
+      const signals = processEvent(overflowEvent);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.type).toBe('LayoutOverflowDetected');
+      expect(signals[0]?.confidence).toBe(0.85);
+      expect(signals[0]?.derivedFrom).toEqual(['evt-overflow-1']);
+    });
+
+    it('emits LayoutOverflowDetected signal with confidence === 0.95 when viewport_stress CHAOS_INJECTED is in buffer', () => {
+      const chaosEvent: HavocEvent = {
+        id: 'evt-chaos-vp',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'CHAOS_INJECTED',
+        source: 'service_worker',
+        metadata: {
+          kind: 'viewport_stress',
+          mode: 'mobile_narrow',
+        },
+      };
+
+      processEvent(chaosEvent);
+
+      const overflowEvent: HavocEvent = {
+        id: 'evt-overflow-2',
+        runId,
+        timestamp: 2000,
+        sequence: 2,
+        type: 'DOM_OBSERVATION',
+        source: 'content',
+        metadata: {
+          kind: 'layout_overflow_detected',
+          selector: 'html',
+          textSnippet: 'overflow 80px',
+        },
+      };
+
+      const signals = processEvent(overflowEvent);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.type).toBe('LayoutOverflowDetected');
+      expect(signals[0]?.confidence).toBe(0.95);
+      expect(signals[0]?.derivedFrom).toEqual(['evt-overflow-2', 'evt-chaos-vp']);
+    });
+
+    it('reconstructs LayoutOverflowDetected signals in getRunSnapshot', () => {
+      const chaosEvent: HavocEvent = {
+        id: 'evt-chaos-snap',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'CHAOS_INJECTED',
+        source: 'service_worker',
+        metadata: {
+          kind: 'viewport_stress',
+        },
+      };
+      const overflowEvent: HavocEvent = {
+        id: 'evt-overflow-snap',
+        runId,
+        timestamp: 2000,
+        sequence: 2,
+        type: 'DOM_OBSERVATION',
+        source: 'content',
+        metadata: {
+          kind: 'layout_overflow_detected',
+          selector: 'html',
+          textSnippet: 'overflow 50px',
+        },
+      };
+
+      processEvent(chaosEvent);
+      processEvent(overflowEvent);
+
+      const snapshot = getRunSnapshot(runId);
+      const overflowSignals = snapshot.signals.filter((s) => s.type === 'LayoutOverflowDetected');
+      expect(overflowSignals).toHaveLength(1);
+      expect(overflowSignals[0]?.confidence).toBe(0.95);
+      expect(overflowSignals[0]?.derivedFrom).toEqual(['evt-overflow-snap', 'evt-chaos-snap']);
+    });
+  });
 });

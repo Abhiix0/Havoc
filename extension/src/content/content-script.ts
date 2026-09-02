@@ -250,6 +250,32 @@ const _observer = new MutationObserver((records) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Layout Overflow Detection
+// ---------------------------------------------------------------------------
+let _lastLayoutCheck = 0;
+const LAYOUT_CHECK_DEBOUNCE_MS = 500;
+
+function checkLayoutOverflow(): void {
+  const now = Date.now();
+  if (now - _lastLayoutCheck < LAYOUT_CHECK_DEBOUNCE_MS) {
+    return;
+  }
+  _lastLayoutCheck = now;
+
+  const docEl = document.documentElement;
+  if (!docEl) return;
+  const scrollWidth = docEl.scrollWidth;
+  const clientWidth = docEl.clientWidth;
+  if (scrollWidth > clientWidth + 4) {
+    emitDomObservation(
+      'layout_overflow_detected',
+      docEl,
+      `overflow ${scrollWidth - clientWidth}px`
+    );
+  }
+}
+
 // Start observing once the DOM is ready.
 function startObserver(): void {
   _observer.observe(document.documentElement, {
@@ -262,6 +288,8 @@ function startObserver(): void {
   });
   console.log('[HAVOC][content] DOM observer active');
 }
+
+window.addEventListener('resize', checkLayoutOverflow);
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', startObserver, { once: true });

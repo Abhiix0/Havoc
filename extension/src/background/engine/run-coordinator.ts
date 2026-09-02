@@ -28,7 +28,10 @@ import { buildChaosParams, injectChaos, ContentScriptUnavailableError } from './
 import { createBridgeMessage, createRunStateUpdateMessage } from '../../messaging/messages';
 import { getRunSnapshot } from './signal-engine';
 import { openRecoveryWindow } from './recovery-window';
-import { deriveFromRecoveryResult } from './finding-engine';
+import {
+  deriveFromRecoveryResult,
+  deriveFindingFromLayoutOverflow,
+} from './finding-engine';
 import {
   saveRun,
   saveEvent,
@@ -263,13 +266,39 @@ export async function startRun(
     const eventIndex = new Map(snapshot.events.map((e) => [e.id, e]));
     const signalIndex = new Map(snapshot.signals.map((s) => [s.id, s]));
 
-    const { finding, evidence } = deriveFromRecoveryResult(
-      run.runId,
-      recoveryResult,
-      eventIndex,
-      signalIndex,
-      run.definition.kind
-    );
+    let findingResult;
+
+    if (run.definition.kind === 'viewport_stress') {
+      const overflowSignals = snapshot.signals.filter(
+        (s) => s.type === 'LayoutOverflowDetected'
+      );
+      if (overflowSignals.length > 0) {
+        findingResult = deriveFindingFromLayoutOverflow(
+          run.runId,
+          overflowSignals,
+          eventIndex,
+          signalIndex
+        );
+      } else {
+        findingResult = deriveFromRecoveryResult(
+          run.runId,
+          recoveryResult,
+          eventIndex,
+          signalIndex,
+          run.definition.kind
+        );
+      }
+    } else {
+      findingResult = deriveFromRecoveryResult(
+        run.runId,
+        recoveryResult,
+        eventIndex,
+        signalIndex,
+        run.definition.kind
+      );
+    }
+
+    const { finding, evidence } = findingResult;
 
     // Persist recovery, evidence, and finding
     await saveRecovery(recoveryResult.recovery).catch((err: unknown) => {

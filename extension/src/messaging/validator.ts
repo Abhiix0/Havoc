@@ -154,6 +154,7 @@ const VALID_DOM_MUTATION_KINDS: ReadonlySet<DomMutationKind> = new Set([
   'loading_indicator_removed',
   'error_text_appeared',
   'aria_live_changed',
+  'layout_overflow_detected',
 ]);
 
 export function isDomObservationPayload(data: unknown): data is DomObservationPayload {
