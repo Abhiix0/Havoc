@@ -272,3 +272,76 @@ export function deriveFindingFromRuntimeErrors(
 
   return { finding, evidence };
 }
+
+/**
+ * Derive a Finding for passive secret exposure checks.
+ * Zero matches is a clean negative (null finding).
+ */
+export function deriveFindingFromSecretMatches(
+  runId: string,
+  matchEvents: HavocEvent[],
+  matchSignals: Signal[],
+  eventIndex: Map<string, HavocEvent>,
+  signalIndex: Map<string, Signal>
+): FindingEngineResult {
+  const evidence: Evidence[] = [];
+
+  for (const event of matchEvents) {
+    if (eventIndex.has(event.id)) {
+      evidence.push(makeEvidence(runId, 'event', event.id));
+    }
+  }
+
+  for (const signal of matchSignals) {
+    if (signalIndex.has(signal.id)) {
+      evidence.push(makeEvidence(runId, 'signal', signal.id));
+    }
+  }
+
+  if (matchSignals.length === 0) {
+    return { finding: null, evidence };
+  }
+
+  const hasHigh = matchEvents.some((e) => e.metadata?.severity === 'HIGH');
+  const severity: FindingSeverity = hasHigh ? 'HIGH' : 'MEDIUM';
+  const confidence = 0.60;
+
+  const labels = Array.from(
+    new Set(
+      matchEvents
+        .map((e) => (typeof e.metadata?.label === 'string' ? e.metadata.label : ''))
+        .filter((l) => l.length > 0)
+    )
+  );
+
+  const sources = Array.from(
+    new Set(
+      matchEvents
+        .map((e) => (typeof e.metadata?.sourceDescription === 'string' ? e.metadata.sourceDescription : ''))
+        .filter((s) => s.length > 0)
+    )
+  );
+
+  const disclaimer =
+    'This is a heuristic exposure check, not a guarantee of security. Absence of a finding does not mean your application has no exposed secrets.';
+
+  const description =
+    `${disclaimer} Observed ${matchEvents.length} potential secret match(es) across ${labels.length} pattern categories (${labels.join(', ')}) in ${sources.length} script source(s) (${sources.join(', ')}).`;
+
+  const finding: Finding = {
+    id: crypto.randomUUID(),
+    runId,
+    severity,
+    confidence,
+    description,
+    evidenceIds: evidence.map((e) => e.id),
+  };
+
+  console.log(
+    `[HAVOC][finding] ${finding.severity} confidence=${finding.confidence.toFixed(2)}`,
+    `secret_matches=${matchEvents.length}`,
+    `evidence=${evidence.length}`
+  );
+
+  return { finding, evidence };
+}

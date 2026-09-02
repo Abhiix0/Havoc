@@ -299,4 +299,53 @@ describe('Signal Engine — Causal Plausibility & Gating Tests', () => {
       expect(snapshot.signals[0]?.derivedFrom).toEqual(['evt-uncaught-snap']);
     });
   });
+
+  describe('Secret pattern signal derivation', () => {
+    it('emits SecretPatternDetected signal with confidence === 0.60 for SECRET_PATTERN_MATCH event', () => {
+      const secretEvent: HavocEvent = {
+        id: 'evt-secret-match-1',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'SECRET_PATTERN_MATCH',
+        source: 'service_worker',
+        metadata: {
+          patternId: 'aws_access_key',
+          label: 'AWS Access Key',
+          severity: 'HIGH',
+          redacted: 'AKIA...[REDACTED]...1234',
+        },
+      };
+
+      const signals = processEvent(secretEvent);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.type).toBe('SecretPatternDetected');
+      expect(signals[0]?.confidence).toBe(0.60);
+      expect(signals[0]?.derivedFrom).toEqual(['evt-secret-match-1']);
+    });
+
+    it('reconstructs SecretPatternDetected signals in getRunSnapshot', () => {
+      const secretEvent: HavocEvent = {
+        id: 'evt-secret-snap-1',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'SECRET_PATTERN_MATCH',
+        source: 'service_worker',
+        metadata: {
+          patternId: 'generic_api_key',
+          label: 'Generic API Key Assignment',
+          severity: 'MEDIUM',
+          redacted: 'api_...[REDACTED]...456"',
+        },
+      };
+
+      processEvent(secretEvent);
+      const snapshot = getRunSnapshot(runId);
+      expect(snapshot.signals).toHaveLength(1);
+      expect(snapshot.signals[0]?.type).toBe('SecretPatternDetected');
+      expect(snapshot.signals[0]?.confidence).toBe(0.60);
+      expect(snapshot.signals[0]?.derivedFrom).toEqual(['evt-secret-snap-1']);
+    });
+  });
 });

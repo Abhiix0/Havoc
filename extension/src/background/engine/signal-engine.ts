@@ -438,6 +438,23 @@ function deriveRuntimeErrorObserved(
 }
 
 // ---------------------------------------------------------------------------
+// Deriver 5 — SecretPatternDetected
+// ---------------------------------------------------------------------------
+
+function deriveSecretPatternDetected(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (event.type !== 'SECRET_PATTERN_MATCH') return null;
+
+  const fingerprint = `SecretPatternDetected:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+  buf.emitted.add(fingerprint);
+
+  return makeSignal('SecretPatternDetected', event.runId, 0.60, [event.id]);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -482,6 +499,9 @@ export function processEvent(event: HavocEvent, context?: SignalContext): Signal
 
   const s4 = deriveRuntimeErrorObserved(event, buf);
   if (s4 !== null) signals.push(s4);
+
+  const s5 = deriveSecretPatternDetected(event, buf);
+  if (s5 !== null) signals.push(s5);
 
   signals.forEach(logSignal);
   return signals;
@@ -532,6 +552,9 @@ function deriveSignalsFromBuffer(buf: RunBuffer): Signal[] {
     }
     if (buf.emitted.has(`RuntimeErrorObserved:${event.id}`)) {
       signals.push(makeSignal('RuntimeErrorObserved', event.runId, 0.98, [event.id]));
+    }
+    if (buf.emitted.has(`SecretPatternDetected:${event.id}`)) {
+      signals.push(makeSignal('SecretPatternDetected', event.runId, 0.60, [event.id]));
     }
   }
   return signals;

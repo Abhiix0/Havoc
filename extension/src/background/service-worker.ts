@@ -46,6 +46,7 @@ import {
   runtimeErrorToEvent,
   runtimeErrorObserverExecutor,
 } from './engine/runtime-error-observer';
+import { secretScannerExecutor } from './engine/secret-scanner';
 import { registerPassiveCheckExecutor } from './engine/passive-check-runner';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
@@ -87,6 +88,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
 
 ensureWatchdogAlarm();
 registerPassiveCheckExecutor('runtime_errors', runtimeErrorObserverExecutor);
+registerPassiveCheckExecutor('secret_scan', secretScannerExecutor);
 
 // ---------------------------------------------------------------------------
 // Build a HavocEvent from a validated ObservationPayload.
