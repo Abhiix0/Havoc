@@ -190,6 +190,7 @@ const VALID_RUNTIME_TYPES: ReadonlySet<RuntimeMessageType> = new Set([
   'CREATE_RUN_RESPONSE',
   'RUN_STATE_UPDATE',
   'ABORT_RUN',
+  'PASSIVE_RUN_STATE_UPDATE',
 ]);
 
 function isRuntimeMessageBase(data: unknown): data is { type: RuntimeMessageType } {
@@ -227,6 +228,12 @@ export function isCreateRunResponseMessage(data: unknown): data is CreateRunResp
 
 export function isRunStateUpdateMessage(data: unknown): data is RunStateUpdateMessage {
   return isRuntimeMessageBase(data) && (data as RunStateUpdateMessage).type === 'RUN_STATE_UPDATE';
+}
+
+export function isPassiveRunStateUpdateMessage(
+  data: unknown
+): data is import('./messages').PassiveRunStateUpdateMessage {
+  return isRuntimeMessageBase(data) && data.type === 'PASSIVE_RUN_STATE_UPDATE';
 }
 
 export function isAbortRunMessage(data: unknown): data is import('./messages').AbortRunMessage {

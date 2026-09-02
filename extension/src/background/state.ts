@@ -10,14 +10,17 @@
  */
 
 import type { ExperimentRun } from '../domain/run';
+import type { PassiveCheckRun } from '../domain/passive-check';
 
 const SESSION_KEY = 'havoc_current_run' as const;
+export const PASSIVE_SESSION_KEY = 'havoc_current_passive_run' as const;
 
 // ---------------------------------------------------------------------------
 // In-memory cache — authoritative only while this SW activation is alive.
 // Always re-hydrated from session storage on startup (see rehydrate()).
 // ---------------------------------------------------------------------------
 let _currentRun: ExperimentRun | null = null;
+let _currentPassiveRun: PassiveCheckRun | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -61,3 +64,38 @@ export async function checkpoint(run: ExperimentRun | null): Promise<void> {
 export function getCurrentRun(): ExperimentRun | null {
   return _currentRun;
 }
+
+/**
+ * Re-hydrate the passive check in-memory cache from chrome.storage.session.
+ */
+export async function rehydratePassiveRun(): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
+  const result = await chrome.storage.session.get(PASSIVE_SESSION_KEY);
+  const stored = result[PASSIVE_SESSION_KEY] as PassiveCheckRun | null | undefined;
+  _currentPassiveRun = stored ?? null;
+
+  console.log(
+    '[HAVOC][state] rehydrated passive run from session storage:',
+    _currentPassiveRun ? `run ${_currentPassiveRun.runId} (${_currentPassiveRun.state})` : 'no active passive run'
+  );
+}
+
+export async function checkpointPassiveRun(run: PassiveCheckRun | null): Promise<void> {
+  _currentPassiveRun = run;
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
+  if (run === null) {
+    await chrome.storage.session.remove(PASSIVE_SESSION_KEY);
+    console.log('[HAVOC][state] passive checkpoint cleared');
+  } else {
+    await chrome.storage.session.set({ [PASSIVE_SESSION_KEY]: run });
+    console.log(`[HAVOC][state] passive checkpoint saved: run ${run.runId} → ${run.state}`);
+  }
+}
+
+/**
+ * Return the current in-memory passive run snapshot.
+ */
+export function getCurrentPassiveRun(): PassiveCheckRun | null {
+  return _currentPassiveRun;
+}
+

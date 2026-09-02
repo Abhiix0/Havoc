@@ -1,4 +1,5 @@
 import type { ExperimentRun, ExperimentState } from '../domain/run';
+import type { PassiveCheckRun, PassiveCheckState } from '../domain/passive-check';
 import type { ExperimentDefinition } from '../domain/experiment';
 import type { Target } from '../domain/target';
 
@@ -36,7 +37,8 @@ export type RuntimeMessageType =
   | 'CREATE_RUN'
   | 'CREATE_RUN_RESPONSE'
   | 'RUN_STATE_UPDATE'
-  | 'ABORT_RUN';
+  | 'ABORT_RUN'
+  | 'PASSIVE_RUN_STATE_UPDATE';
 
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
@@ -321,6 +323,25 @@ export function createRunStateUpdateMessage(
     namespace: HAVOC_NAMESPACE,
     version: BRIDGE_PROTOCOL_VERSION,
     type: 'RUN_STATE_UPDATE',
+    run,
+    previousState,
+  };
+}
+
+export interface PassiveRunStateUpdateMessage extends RuntimeMessage {
+  type: 'PASSIVE_RUN_STATE_UPDATE';
+  run: PassiveCheckRun | null;
+  previousState: PassiveCheckState | null;
+}
+
+export function createPassiveRunStateUpdateMessage(
+  run: PassiveCheckRun | null,
+  previousState: PassiveCheckState | null
+): PassiveRunStateUpdateMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'PASSIVE_RUN_STATE_UPDATE',
     run,
     previousState,
   };
