@@ -20,6 +20,10 @@ import {
   activateChaos,
   deactivateChaos,
 } from './instrumentation';
+import {
+  activateRuntimeErrorCapture,
+  deactivateRuntimeErrorCapture,
+} from './runtime-error-capture';
 
 console.log('[HAVOC][page] bridge script running in page world');
 
@@ -54,6 +58,16 @@ window.addEventListener('message', (event: MessageEvent) => {
         event.data.payload
       );
       deactivateInstrumentation();
+      break;
+
+    case 'ENABLE_RUNTIME_ERROR_CAPTURE':
+      console.log('[HAVOC][page] ENABLE_RUNTIME_ERROR_CAPTURE received');
+      activateRuntimeErrorCapture();
+      break;
+
+    case 'DISABLE_RUNTIME_ERROR_CAPTURE':
+      console.log('[HAVOC][page] DISABLE_RUNTIME_ERROR_CAPTURE received');
+      deactivateRuntimeErrorCapture();
       break;
 
     default:

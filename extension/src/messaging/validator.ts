@@ -31,6 +31,9 @@ const VALID_BRIDGE_TYPES: ReadonlySet<BridgeMessageType> = new Set([
   'INJECT_CHAOS',
   'REMOVE_CHAOS',
   'DOM_OBSERVATION',
+  'RUNTIME_ERROR_OBSERVATION',
+  'ENABLE_RUNTIME_ERROR_CAPTURE',
+  'DISABLE_RUNTIME_ERROR_CAPTURE',
 ]);
 
 export function isBridgeMessage(data: unknown): data is BridgeMessage {
@@ -177,6 +180,42 @@ export function isDomObservationMessage(data: unknown): data is DomObservationMe
   if (msg.version !== BRIDGE_PROTOCOL_VERSION) return false;
   if (msg.type !== 'DOM_OBSERVATION') return false;
   return isDomObservationPayload(msg.payload);
+}
+
+// ---------------------------------------------------------------------------
+// RuntimeErrorObservationMessage validator
+// ---------------------------------------------------------------------------
+
+const VALID_RUNTIME_ERROR_KINDS: ReadonlySet<import('./messages').RuntimeErrorKind> = new Set([
+  'uncaught_exception',
+  'unhandled_rejection',
+]);
+
+export function isRuntimeErrorPayload(
+  data: unknown
+): data is import('./messages').RuntimeErrorPayload {
+  if (typeof data !== 'object' || data === null) return false;
+  const p = data as Record<string, unknown>;
+  if (typeof p.observationId !== 'string' || p.observationId.length === 0) return false;
+  if (!VALID_RUNTIME_ERROR_KINDS.has(p.kind as import('./messages').RuntimeErrorKind)) return false;
+  if (typeof p.message !== 'string') return false;
+  if (typeof p.filename !== 'string') return false;
+  if (typeof p.lineno !== 'number' || !isFinite(p.lineno)) return false;
+  if (typeof p.colno !== 'number' || !isFinite(p.colno)) return false;
+  if (typeof p.timestamp !== 'number' || !isFinite(p.timestamp)) return false;
+  if (p.runId !== null && typeof p.runId !== 'string') return false;
+  return true;
+}
+
+export function isRuntimeErrorObservationMessage(
+  data: unknown
+): data is import('./messages').RuntimeErrorObservationMessage {
+  if (typeof data !== 'object' || data === null) return false;
+  const msg = data as Record<string, unknown>;
+  if (msg.namespace !== HAVOC_NAMESPACE) return false;
+  if (msg.version !== BRIDGE_PROTOCOL_VERSION) return false;
+  if (msg.type !== 'RUNTIME_ERROR_OBSERVATION') return false;
+  return isRuntimeErrorPayload(msg.payload);
 }
 
 // ---------------------------------------------------------------------------

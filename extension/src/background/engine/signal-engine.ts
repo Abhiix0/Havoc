@@ -102,6 +102,11 @@ const FAILURE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'REQUEST_TIMEOUT',
 ]);
 
+const RUNTIME_ERROR_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'UNCAUGHT_EXCEPTION',
+  'UNHANDLED_REJECTION',
+]);
+
 // ---------------------------------------------------------------------------
 // Per-run state
 // ---------------------------------------------------------------------------
@@ -416,6 +421,23 @@ function deriveErrorState(
 }
 
 // ---------------------------------------------------------------------------
+// Deriver 4 — RuntimeErrorObserved
+// ---------------------------------------------------------------------------
+
+function deriveRuntimeErrorObserved(
+  event: HavocEvent,
+  buf: RunBuffer
+): Signal | null {
+  if (!RUNTIME_ERROR_EVENT_TYPES.has(event.type)) return null;
+
+  const fingerprint = `RuntimeErrorObserved:${event.id}`;
+  if (buf.emitted.has(fingerprint)) return null;
+  buf.emitted.add(fingerprint);
+
+  return makeSignal('RuntimeErrorObserved', event.runId, 0.98, [event.id]);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -457,6 +479,9 @@ export function processEvent(event: HavocEvent, context?: SignalContext): Signal
 
   const s3 = deriveErrorState(event, buf);
   if (s3 !== null) signals.push(s3);
+
+  const s4 = deriveRuntimeErrorObserved(event, buf);
+  if (s4 !== null) signals.push(s4);
 
   signals.forEach(logSignal);
   return signals;
@@ -504,6 +529,9 @@ function deriveSignalsFromBuffer(buf: RunBuffer): Signal[] {
     }
     if (buf.emitted.has(`ErrorStateDetected:${event.id}`)) {
       signals.push(makeSignal('ErrorStateDetected', event.runId, 0.60, [event.id]));
+    }
+    if (buf.emitted.has(`RuntimeErrorObserved:${event.id}`)) {
+      signals.push(makeSignal('RuntimeErrorObserved', event.runId, 0.98, [event.id]));
     }
   }
   return signals;

@@ -25,7 +25,12 @@
  *   - DOM_OBSERVATION originates entirely in the content script — no page input.
  */
 
-import { isBridgeMessage, isObservationMessage, isRunStateUpdateMessage } from '../messaging/validator';
+import {
+  isBridgeMessage,
+  isObservationMessage,
+  isRunStateUpdateMessage,
+  isRuntimeErrorObservationMessage,
+} from '../messaging/validator';
 import { createBridgeMessage, createDomObservationMessage } from '../messaging/messages';
 import type { DomMutationKind } from '../messaging/messages';
 
@@ -49,7 +54,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (!isBridgeMessage(message)) return false;
 
-  if (message.type === 'INJECT_CHAOS' || message.type === 'REMOVE_CHAOS') {
+  if (
+    message.type === 'INJECT_CHAOS' ||
+    message.type === 'REMOVE_CHAOS' ||
+    message.type === 'ENABLE_RUNTIME_ERROR_CAPTURE' ||
+    message.type === 'DISABLE_RUNTIME_ERROR_CAPTURE'
+  ) {
     window.postMessage(message, '*');
     sendResponse({ ok: true });
     return true;
@@ -68,6 +78,16 @@ window.addEventListener('message', (event: MessageEvent) => {
     chrome.runtime.sendMessage(event.data, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[HAVOC][content] SW unreachable forwarding observation', chrome.runtime.lastError.message);
+      }
+      void response;
+    });
+    return;
+  }
+
+  if (isRuntimeErrorObservationMessage(event.data)) {
+    chrome.runtime.sendMessage(event.data, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[HAVOC][content] SW unreachable forwarding runtime error', chrome.runtime.lastError.message);
       }
       void response;
     });

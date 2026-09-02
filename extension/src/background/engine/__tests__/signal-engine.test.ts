@@ -242,4 +242,61 @@ describe('Signal Engine — Causal Plausibility & Gating Tests', () => {
       expect(signals[0]?.confidence).toBe(0.97);
     });
   });
+
+  describe('Runtime error signal derivation', () => {
+    it('emits RuntimeErrorObserved signal (0.98) for UNCAUGHT_EXCEPTION event with derivedFrom === [event.id]', () => {
+      const uncaughtEvent: HavocEvent = {
+        id: 'evt-uncaught-1',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'UNCAUGHT_EXCEPTION',
+        source: 'page',
+        metadata: { message: 'Uncaught TypeError: Cannot read property' },
+      };
+
+      const signals = processEvent(uncaughtEvent);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.type).toBe('RuntimeErrorObserved');
+      expect(signals[0]?.confidence).toBe(0.98);
+      expect(signals[0]?.derivedFrom).toEqual(['evt-uncaught-1']);
+    });
+
+    it('emits RuntimeErrorObserved signal (0.98) for UNHANDLED_REJECTION event with derivedFrom === [event.id]', () => {
+      const rejectionEvent: HavocEvent = {
+        id: 'evt-rejection-1',
+        runId,
+        timestamp: 1200,
+        sequence: 2,
+        type: 'UNHANDLED_REJECTION',
+        source: 'page',
+        metadata: { message: 'Unhandled promise rejection' },
+      };
+
+      const signals = processEvent(rejectionEvent);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.type).toBe('RuntimeErrorObserved');
+      expect(signals[0]?.confidence).toBe(0.98);
+      expect(signals[0]?.derivedFrom).toEqual(['evt-rejection-1']);
+    });
+
+    it('reconstructs RuntimeErrorObserved signals in getRunSnapshot', () => {
+      const uncaughtEvent: HavocEvent = {
+        id: 'evt-uncaught-snap',
+        runId,
+        timestamp: 1000,
+        sequence: 1,
+        type: 'UNCAUGHT_EXCEPTION',
+        source: 'page',
+        metadata: { message: 'Error' },
+      };
+
+      processEvent(uncaughtEvent);
+      const snapshot = getRunSnapshot(runId);
+      expect(snapshot.signals).toHaveLength(1);
+      expect(snapshot.signals[0]?.type).toBe('RuntimeErrorObserved');
+      expect(snapshot.signals[0]?.confidence).toBe(0.98);
+      expect(snapshot.signals[0]?.derivedFrom).toEqual(['evt-uncaught-snap']);
+    });
+  });
 });

@@ -27,10 +27,11 @@ import {
   isCreateRunMessage,
   isDomObservationMessage,
   isAbortRunMessage,
+  isRuntimeErrorObservationMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { saveEvent, saveSignals } from '../storage/repository';
-import { rehydrate, getCurrentRun } from './state';
+import { rehydrate, getCurrentRun, getCurrentPassiveRun } from './state';
 import {
   startRun,
   abortRun,
@@ -41,6 +42,11 @@ import {
 import { processEvent, clearRunBuffer } from './engine/signal-engine';
 import { globalPerfMonitor } from './engine/performance-monitor';
 import { sanitizeUrl } from '../shared/sanitize-url';
+import {
+  runtimeErrorToEvent,
+  runtimeErrorObserverExecutor,
+} from './engine/runtime-error-observer';
+import { registerPassiveCheckExecutor } from './engine/passive-check-runner';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -80,6 +86,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
 }
 
 ensureWatchdogAlarm();
+registerPassiveCheckExecutor('runtime_errors', runtimeErrorObserverExecutor);
 
 // ---------------------------------------------------------------------------
 // Build a HavocEvent from a validated ObservationPayload.
@@ -270,6 +277,27 @@ export function handleIncomingMessage(
     }
 
     const event = observationToEvent(message.payload, currentRun.runId);
+    emitEvent(event);
+    sendResponse(null);
+    return true;
+  }
+
+  // --- RUNTIME_ERROR_OBSERVATION (page → content → SW) ---
+  if (isRuntimeErrorObservationMessage(message)) {
+    const currentPassiveRun = getCurrentPassiveRun();
+    if (!currentPassiveRun || sender.tab?.id !== currentPassiveRun.target.tabId) {
+      console.log(
+        `[HAVOC][SW] discarded runtime error observation from tab ${sender.tab?.id ?? 'unknown'}: does not match active passive run's target tab ${currentPassiveRun?.target.tabId ?? 'none'}`
+      );
+      sendResponse(null);
+      return true;
+    }
+
+    const event = runtimeErrorToEvent(
+      message.payload,
+      currentPassiveRun.runId,
+      nextSequence(currentPassiveRun.runId)
+    );
     emitEvent(event);
     sendResponse(null);
     return true;

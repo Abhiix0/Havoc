@@ -208,3 +208,67 @@ export function deriveFromRecoveryResult(
     signalIndex,
   });
 }
+
+/**
+ * Derive a Finding for passive runtime error checks.
+ * Does not require a Recovery record. Zero observed errors is a clean negative (null finding).
+ */
+export function deriveFindingFromRuntimeErrors(
+  runId: string,
+  errorEvents: HavocEvent[],
+  errorSignals: Signal[],
+  eventIndex: Map<string, HavocEvent>,
+  signalIndex: Map<string, Signal>
+): FindingEngineResult {
+  const evidence: Evidence[] = [];
+
+  for (const event of errorEvents) {
+    if (eventIndex.has(event.id)) {
+      evidence.push(makeEvidence(runId, 'event', event.id));
+    }
+  }
+
+  for (const signal of errorSignals) {
+    if (signalIndex.has(signal.id)) {
+      evidence.push(makeEvidence(runId, 'signal', signal.id));
+    }
+  }
+
+  if (errorSignals.length === 0) {
+    return { finding: null, evidence };
+  }
+
+  const messages = errorEvents
+    .map((e) => (typeof e.metadata?.message === 'string' ? e.metadata.message : ''))
+    .filter((m) => m.length > 0);
+
+  const distinctMessages = Array.from(new Set(messages));
+  const severity: FindingSeverity = distinctMessages.length >= 2 ? 'HIGH' : 'MEDIUM';
+
+  const confidenceSum = errorSignals.reduce((sum, s) => sum + s.confidence, 0);
+  const confidence = errorSignals.length > 0 ? confidenceSum / errorSignals.length : 0.98;
+
+  const formattedMessages = distinctMessages
+    .map((m) => `"${m.slice(0, 200)}"`)
+    .join(', ');
+
+  const description =
+    `Observed ${errorEvents.length} runtime error(s) across ${distinctMessages.length} distinct message(s): ${formattedMessages}.`;
+
+  const finding: Finding = {
+    id: crypto.randomUUID(),
+    runId,
+    severity,
+    confidence,
+    description,
+    evidenceIds: evidence.map((e) => e.id),
+  };
+
+  console.log(
+    `[HAVOC][finding] ${finding.severity} confidence=${finding.confidence.toFixed(2)}`,
+    `runtime_errors=${errorEvents.length}`,
+    `evidence=${evidence.length}`
+  );
+
+  return { finding, evidence };
+}

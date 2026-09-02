@@ -28,7 +28,10 @@ export type BridgeMessageType =
   | 'REQUEST_OBSERVATION'
   | 'INJECT_CHAOS'
   | 'REMOVE_CHAOS'
-  | 'DOM_OBSERVATION';
+  | 'DOM_OBSERVATION'
+  | 'RUNTIME_ERROR_OBSERVATION'
+  | 'ENABLE_RUNTIME_ERROR_CAPTURE'
+  | 'DISABLE_RUNTIME_ERROR_CAPTURE';
 
 /** Messages that travel over the popup ↔ service-worker channel (chrome.runtime). */
 export type RuntimeMessageType =
@@ -216,6 +219,49 @@ export function createDomObservationMessage(
   payload: DomObservationPayload
 ): DomObservationMessage {
   return { namespace: HAVOC_NAMESPACE, version: BRIDGE_PROTOCOL_VERSION, type: 'DOM_OBSERVATION', payload };
+}
+
+// ---------------------------------------------------------------------------
+// Runtime Error observation payload
+// ---------------------------------------------------------------------------
+
+export type RuntimeErrorKind = 'uncaught_exception' | 'unhandled_rejection';
+
+export interface RuntimeErrorPayload {
+  observationId: string;
+  kind: RuntimeErrorKind;
+  message: string;
+  filename: string;
+  lineno: number;
+  colno: number;
+  timestamp: number;
+  runId: string | null;
+}
+
+export interface RuntimeErrorObservationMessage {
+  namespace: typeof HAVOC_NAMESPACE;
+  version: typeof BRIDGE_PROTOCOL_VERSION;
+  type: 'RUNTIME_ERROR_OBSERVATION';
+  payload: RuntimeErrorPayload;
+}
+
+export function createRuntimeErrorObservationMessage(
+  payload: RuntimeErrorPayload
+): RuntimeErrorObservationMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'RUNTIME_ERROR_OBSERVATION',
+    payload,
+  };
+}
+
+export function createEnableRuntimeErrorCaptureMessage(): BridgeMessage {
+  return createBridgeMessage('ENABLE_RUNTIME_ERROR_CAPTURE');
+}
+
+export function createDisableRuntimeErrorCaptureMessage(): BridgeMessage {
+  return createBridgeMessage('DISABLE_RUNTIME_ERROR_CAPTURE');
 }
 
 // ---------------------------------------------------------------------------
