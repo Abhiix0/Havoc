@@ -17,7 +17,11 @@ import {
   saveFinding,
   saveRemediation,
 } from '../../../../storage/repository';
-import { createShipCheckStepUpdateMessage } from '../../../../messaging/messages';
+import {
+  createShipCheckStepUpdateMessage,
+  createCurrentShipCheckResponseMessage,
+  createCreateShipCheckResponseMessage,
+} from '../../../../messaging/messages';
 import type { ShipCheckRun } from '../../../../domain/ship-check';
 import type { Finding } from '../../../../domain/finding';
 import type { Remediation } from '../../../../domain/remediation';
@@ -182,10 +186,9 @@ describe('Ship Check Store', () => {
       readiness: 'UNKNOWN',
     };
 
-    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
-      type: 'CURRENT_SHIP_CHECK_RESPONSE',
-      shipCheck: runningShipCheck,
-    });
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce(
+      createCurrentShipCheckResponseMessage(runningShipCheck)
+    );
 
     await syncShipCheckState();
 
@@ -197,10 +200,9 @@ describe('Ship Check Store', () => {
   });
 
   it('syncShipCheckState with a null response leaves currentShipCheck as null without throwing', async () => {
-    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
-      type: 'CURRENT_SHIP_CHECK_RESPONSE',
-      shipCheck: null,
-    });
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce(
+      createCurrentShipCheckResponseMessage(null)
+    );
 
     await syncShipCheckState();
 
@@ -209,11 +211,13 @@ describe('Ship Check Store', () => {
   });
 
   it('startShipCheck when already running surfaces a friendly error message', async () => {
-    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
-      type: 'CREATE_SHIP_CHECK_RESPONSE',
-      error: 'Cannot start a new Ship Check — one is already running (sc-123)',
-      alreadyActive: true,
-    });
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce(
+      createCreateShipCheckResponseMessage(
+        undefined,
+        'Cannot start a new Ship Check — one is already running (sc-123)',
+        true
+      )
+    );
 
     const result = await startShipCheck();
     expect(result).toBe(false);

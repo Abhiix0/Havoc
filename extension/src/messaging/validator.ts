@@ -234,6 +234,8 @@ const VALID_RUNTIME_TYPES: ReadonlySet<RuntimeMessageType> = new Set([
   'CREATE_SHIP_CHECK',
   'CREATE_SHIP_CHECK_RESPONSE',
   'SHIP_CHECK_STEP_UPDATE',
+  'GET_CURRENT_SHIP_CHECK',
+  'CURRENT_SHIP_CHECK_RESPONSE',
 ]);
 
 function isRuntimeMessageBase(data: unknown): data is { type: RuntimeMessageType } {
