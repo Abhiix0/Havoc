@@ -30,16 +30,17 @@ describe('Readiness Evaluation', () => {
     evidenceIds: [],
   };
 
-  it('returns UNKNOWN when erroredStepCount > 0 regardless of findings', () => {
-    expect(computeReadiness([], 1)).toBe('UNKNOWN');
-    expect(computeReadiness([lowFinding], 2)).toBe('UNKNOWN');
-    expect(computeReadiness([highFinding], 1)).toBe('UNKNOWN');
+  it('returns BLOCKED when any finding has HIGH severity (even if erroredStepCount > 0)', () => {
+    expect(computeReadiness([highFinding], 0)).toBe('BLOCKED');
+    expect(computeReadiness([highFinding], 1)).toBe('BLOCKED');
+    expect(computeReadiness([lowFinding, highFinding], 0)).toBe('BLOCKED');
+    expect(computeReadiness([medFinding, highFinding], 2)).toBe('BLOCKED');
   });
 
-  it('returns BLOCKED when any finding has HIGH severity (and erroredStepCount === 0)', () => {
-    expect(computeReadiness([highFinding], 0)).toBe('BLOCKED');
-    expect(computeReadiness([lowFinding, highFinding], 0)).toBe('BLOCKED');
-    expect(computeReadiness([medFinding, highFinding], 0)).toBe('BLOCKED');
+  it('returns UNKNOWN when erroredStepCount > 0 and no HIGH findings exist', () => {
+    expect(computeReadiness([], 1)).toBe('UNKNOWN');
+    expect(computeReadiness([lowFinding], 2)).toBe('UNKNOWN');
+    expect(computeReadiness([medFinding], 1)).toBe('UNKNOWN');
   });
 
   it('returns NEEDS_ATTENTION when findings exist but none are HIGH (and erroredStepCount === 0)', () => {

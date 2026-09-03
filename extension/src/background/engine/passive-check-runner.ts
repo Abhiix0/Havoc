@@ -18,7 +18,7 @@ import type {
 import type { HavocEvent } from '../../domain/event';
 import { checkpointPassiveRun } from '../state';
 import { verifyTarget } from './safety-controller';
-import { processEvent } from './signal-engine';
+import { processEvent, clearRunBuffer } from './signal-engine';
 import { saveEvent, saveSignals } from '../../storage/repository';
 import { createPassiveRunStateUpdateMessage } from '../../messaging/messages';
 
@@ -157,6 +157,7 @@ export async function startPassiveCheck(
       );
       run = await transition(run, 'TARGET_LOST');
       await checkpointPassiveRun(null);
+      clearRunBuffer(run.runId);
       return run;
     }
 
@@ -169,6 +170,9 @@ export async function startPassiveCheck(
 
     const timeoutPromise = delay(timeoutMs, abortController.signal).then(() => {
       throw new Error(`Passive check "${definition.kind}" timed out after ${timeoutMs}ms`);
+    });
+    timeoutPromise.catch(() => {
+      /* expected once aborted after normal completion */
     });
 
     const result = await Promise.race([
@@ -197,12 +201,14 @@ export async function startPassiveCheck(
     // --- COMPLETED ---
     run = await transition(run, 'COMPLETED');
     await checkpointPassiveRun(null);
+    clearRunBuffer(run.runId);
     return run;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[HAVOC][passive-runner] ${run.runId}: FAILED —`, msg);
     run = await transition(run, 'FAILED');
     await checkpointPassiveRun(null);
+    clearRunBuffer(run.runId);
     return run;
   }
 }

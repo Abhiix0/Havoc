@@ -85,12 +85,14 @@ describe('Passive Check Runner', () => {
 
     // Ensure secret_scan has no executor registered
     // (or register undefined)
+    const clearRunBufferSpy = vi.spyOn(signalEngine, 'clearRunBuffer');
     const run = await startPassiveCheck(unregisteredDef, target);
 
     expect(run.state).toBe('FAILED');
     expect(run.runId).toBeDefined();
     expect(run.definition.kind).toBe('secret_scan');
     expect(getCurrentPassiveRun()).toBeNull();
+    expect(clearRunBufferSpy).toHaveBeenCalledWith(run.runId);
   });
 
   it('3. startPassiveCheck when verifyTarget returns {ok:false} -> ends in TARGET_LOST, executor never invoked', async () => {
@@ -102,6 +104,7 @@ describe('Passive Check Runner', () => {
 
     const executorMock = vi.fn().mockResolvedValue({ events: [] });
     registerPassiveCheckExecutor('runtime_errors', executorMock);
+    const clearRunBufferSpy = vi.spyOn(signalEngine, 'clearRunBuffer');
 
     const def: PassiveCheckDefinition = {
       id: 'check-runtime',
@@ -116,6 +119,7 @@ describe('Passive Check Runner', () => {
     expect(run.state).toBe('TARGET_LOST');
     expect(executorMock).not.toHaveBeenCalled();
     expect(getCurrentPassiveRun()).toBeNull();
+    expect(clearRunBufferSpy).toHaveBeenCalledWith(run.runId);
   });
 
   it('4. startPassiveCheck with a stub executor returning 2 HavocEvents -> saveEvent called twice, processEvent called twice, run ends COMPLETED', async () => {
@@ -151,6 +155,7 @@ describe('Passive Check Runner', () => {
     const saveEventSpy = vi.spyOn(repository, 'saveEvent').mockResolvedValue(undefined);
     vi.spyOn(repository, 'saveSignals').mockResolvedValue(undefined);
     const processEventSpy = vi.spyOn(signalEngine, 'processEvent');
+    const clearRunBufferSpy = vi.spyOn(signalEngine, 'clearRunBuffer');
 
     const def: PassiveCheckDefinition = {
       id: 'check-runtime-success',
@@ -170,6 +175,7 @@ describe('Passive Check Runner', () => {
     expect(processEventSpy).toHaveBeenNthCalledWith(1, event1);
     expect(processEventSpy).toHaveBeenNthCalledWith(2, event2);
     expect(getCurrentPassiveRun()).toBeNull();
+    expect(clearRunBufferSpy).toHaveBeenCalledWith(run.runId);
   });
 
   it('5. startPassiveCheck with an executor that never resolves -> ends in FAILED within ~10s', async () => {
@@ -178,6 +184,7 @@ describe('Passive Check Runner', () => {
     // Hanging executor that never resolves
     const hangingExecutor: PassiveCheckExecutor = () => new Promise(() => {});
     registerPassiveCheckExecutor('runtime_errors', hangingExecutor);
+    const clearRunBufferSpy = vi.spyOn(signalEngine, 'clearRunBuffer');
 
     const def: PassiveCheckDefinition = {
       id: 'check-hanging',
@@ -195,5 +202,6 @@ describe('Passive Check Runner', () => {
     const run = await promise;
     expect(run.state).toBe('FAILED');
     expect(getCurrentPassiveRun()).toBeNull();
+    expect(clearRunBufferSpy).toHaveBeenCalledWith(run.runId);
   });
 });

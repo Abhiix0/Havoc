@@ -15,8 +15,8 @@ export function computeReadiness(
   findings: Finding[],
   erroredStepCount: number
 ): ReadinessState {
-  if (erroredStepCount > 0) return 'UNKNOWN';
   if (findings.some((f) => f.severity === 'HIGH')) return 'BLOCKED';
+  if (erroredStepCount > 0) return 'UNKNOWN';
   if (findings.length > 0) return 'NEEDS_ATTENTION';
   return 'READY';
 }

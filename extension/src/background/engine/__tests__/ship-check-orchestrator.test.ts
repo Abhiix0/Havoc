@@ -50,6 +50,7 @@ describe('Ship Check Orchestrator', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getFindingsByRunId).mockResolvedValue([]);
   });
 
   it('Happy path: executes all 6 steps in exact documented order with zero findings -> READY', async () => {
