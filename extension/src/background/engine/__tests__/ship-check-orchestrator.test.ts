@@ -20,6 +20,8 @@ vi.mock('../passive-check-runner', () => ({
 
 vi.mock('../../../storage/repository', () => ({
   saveShipCheck: vi.fn().mockResolvedValue(undefined),
+  saveFinding: vi.fn().mockResolvedValue(undefined),
+  saveAllEvidence: vi.fn().mockResolvedValue(undefined),
   getFindingsByRunId: vi.fn().mockResolvedValue([]),
   getEventsByRunId: vi.fn().mockResolvedValue([]),
   getSignalsByRunId: vi.fn().mockResolvedValue([]),

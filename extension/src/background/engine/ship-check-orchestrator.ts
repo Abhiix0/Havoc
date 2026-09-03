@@ -34,9 +34,15 @@ import { startRun } from './run-coordinator';
 import { startPassiveCheck } from './passive-check-runner';
 import { deriveRemediation } from './remediation-engine';
 import { computeReadiness } from './readiness';
+import {
+  deriveFindingFromRuntimeErrors,
+  deriveFindingFromSecretMatches,
+} from './finding-engine';
 import { createShipCheckStepUpdateMessage } from '../../messaging/messages';
 import {
   saveShipCheck,
+  saveFinding,
+  saveAllEvidence,
   getFindingsByRunId,
   getEventsByRunId,
   getSignalsByRunId,
@@ -228,6 +234,62 @@ export async function startShipCheck(target: Target): Promise<ShipCheckRun> {
       console.error('[HAVOC][ship-check] failed to persist step completion:', err);
     });
     broadcastShipCheckUpdate(shipCheckRun);
+
+    // 4b. Derive and persist Findings for passive checks that completed successfully
+    if (stepDef.runner === 'passive' && step.status === 'DONE' && stepRunId) {
+      try {
+        const stepEvents = await getEventsByRunId(stepRunId);
+        const stepSignals = await getSignalsByRunId(stepRunId);
+        const eventIndex = new Map(stepEvents.map((e) => [e.id, e]));
+        const signalIndex = new Map(stepSignals.map((s) => [s.id, s]));
+
+        let findingResult: { finding: Finding | null; evidence: import('../../domain/evidence').Evidence[] } | null = null;
+
+        if (stepDef.kind === 'runtime_errors') {
+          const errorEvents = stepEvents.filter(
+            (e) => e.type === 'UNCAUGHT_EXCEPTION' || e.type === 'UNHANDLED_REJECTION'
+          );
+          const errorSignals = stepSignals.filter((s) => s.type === 'RuntimeErrorObserved');
+          findingResult = deriveFindingFromRuntimeErrors(
+            stepRunId,
+            errorEvents,
+            errorSignals,
+            eventIndex,
+            signalIndex,
+            'runtime_errors'
+          );
+        } else if (stepDef.kind === 'secret_scan') {
+          const matchEvents = stepEvents.filter((e) => e.type === 'SECRET_PATTERN_MATCH');
+          const matchSignals = stepSignals.filter((s) => s.type === 'SecretPatternDetected');
+          findingResult = deriveFindingFromSecretMatches(
+            stepRunId,
+            matchEvents,
+            matchSignals,
+            eventIndex,
+            signalIndex,
+            'secret_scan'
+          );
+        }
+
+        if (findingResult) {
+          if (findingResult.evidence.length > 0) {
+            await saveAllEvidence(findingResult.evidence).catch((err: unknown) => {
+              console.error('[HAVOC][ship-check] failed to persist passive evidence:', err);
+            });
+          }
+          if (findingResult.finding) {
+            await saveFinding(findingResult.finding).catch((err: unknown) => {
+              console.error('[HAVOC][ship-check] failed to persist passive finding:', err);
+            });
+          }
+        }
+      } catch (fErr: unknown) {
+        console.error(
+          `[HAVOC][ship-check] failed to derive findings for passive step ${stepDef.kind}:`,
+          fErr
+        );
+      }
+    }
 
     // 5. Derive and save remediations for any findings produced by this step
     if (stepRunId) {
