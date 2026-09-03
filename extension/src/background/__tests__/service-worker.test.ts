@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { checkpoint } from '../state';
+import { checkpoint, rehydratePassiveRun, getCurrentPassiveRun } from '../state';
 import { handleIncomingMessage } from '../service-worker';
 import { getEventsByRunId } from '../../storage/repository';
 import { clearRunBuffer, getRunSnapshot } from '../engine/signal-engine';
 import { createBridgeMessage, createDomObservationMessage } from '../../messaging/messages';
 import type { ExperimentRun } from '../../domain/run';
+import type { PassiveCheckRun } from '../../domain/passive-check';
 import type { Target } from '../../domain/target';
 import type { ExperimentDefinition } from '../../domain/experiment';
 
@@ -382,6 +383,33 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
 
       const events = await getEventsByRunId('test-runtime-error-bypass-run');
       expect(events).toHaveLength(0);
+    });
+  });
+
+  describe('Passive Run Rehydration', () => {
+    it('rehydrates active passive run from session storage correctly', async () => {
+      const passiveRun: PassiveCheckRun = {
+        runId: 'rehydrate-passive-run-1',
+        target,
+        definition: {
+          id: 'def-1',
+          kind: 'runtime_errors',
+          name: 'Runtime Errors',
+          description: 'Test',
+          params: {},
+        },
+        state: 'RUNNING',
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      vi.mocked(chrome.storage.session.get).mockImplementationOnce(async () => ({
+        havoc_current_passive_run: passiveRun,
+      }));
+
+      await rehydratePassiveRun();
+
+      expect(getCurrentPassiveRun()).toEqual(passiveRun);
     });
   });
 });

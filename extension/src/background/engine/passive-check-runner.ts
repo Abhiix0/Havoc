@@ -156,6 +156,7 @@ export async function startPassiveCheck(
         `[HAVOC][passive-runner] ${run.runId}: target lost — ${verification.reason}: ${verification.detail}`
       );
       run = await transition(run, 'TARGET_LOST');
+      await checkpointPassiveRun(null);
       return run;
     }
 
@@ -195,11 +196,13 @@ export async function startPassiveCheck(
 
     // --- COMPLETED ---
     run = await transition(run, 'COMPLETED');
+    await checkpointPassiveRun(null);
     return run;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[HAVOC][passive-runner] ${run.runId}: FAILED —`, msg);
     run = await transition(run, 'FAILED');
+    await checkpointPassiveRun(null);
     return run;
   }
 }

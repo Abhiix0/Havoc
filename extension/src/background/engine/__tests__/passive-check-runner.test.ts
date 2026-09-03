@@ -9,6 +9,7 @@ import {
   startPassiveCheck,
   type PassiveCheckExecutor,
 } from '../passive-check-runner';
+import { getCurrentPassiveRun } from '../../state';
 import type { Target } from '../../../domain/target';
 import type {
   PassiveCheckDefinition,
@@ -89,6 +90,7 @@ describe('Passive Check Runner', () => {
     expect(run.state).toBe('FAILED');
     expect(run.runId).toBeDefined();
     expect(run.definition.kind).toBe('secret_scan');
+    expect(getCurrentPassiveRun()).toBeNull();
   });
 
   it('3. startPassiveCheck when verifyTarget returns {ok:false} -> ends in TARGET_LOST, executor never invoked', async () => {
@@ -113,6 +115,7 @@ describe('Passive Check Runner', () => {
 
     expect(run.state).toBe('TARGET_LOST');
     expect(executorMock).not.toHaveBeenCalled();
+    expect(getCurrentPassiveRun()).toBeNull();
   });
 
   it('4. startPassiveCheck with a stub executor returning 2 HavocEvents -> saveEvent called twice, processEvent called twice, run ends COMPLETED', async () => {
@@ -166,6 +169,7 @@ describe('Passive Check Runner', () => {
     expect(processEventSpy).toHaveBeenCalledTimes(2);
     expect(processEventSpy).toHaveBeenNthCalledWith(1, event1);
     expect(processEventSpy).toHaveBeenNthCalledWith(2, event2);
+    expect(getCurrentPassiveRun()).toBeNull();
   });
 
   it('5. startPassiveCheck with an executor that never resolves -> ends in FAILED within ~10s', async () => {
@@ -190,5 +194,6 @@ describe('Passive Check Runner', () => {
 
     const run = await promise;
     expect(run.state).toBe('FAILED');
+    expect(getCurrentPassiveRun()).toBeNull();
   });
 });

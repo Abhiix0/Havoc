@@ -21,7 +21,13 @@
 import type { ExperimentDefinition } from '../../domain/experiment';
 import type { Target } from '../../domain/target';
 import type { ExperimentRun, ExperimentState } from '../../domain/run';
-import { checkpoint, getCurrentRun } from '../state';
+import type { PassiveCheckState } from '../../domain/passive-check';
+import {
+  checkpoint,
+  getCurrentRun,
+  checkpointPassiveRun,
+  getCurrentPassiveRun,
+} from '../state';
 import { ResourceRegistry } from './resource-registry';
 import { verifyTarget } from './safety-controller';
 import { buildChaosParams, injectChaos, ContentScriptUnavailableError } from './chaos-injector';
@@ -51,6 +57,14 @@ const TERMINAL_STATES: ReadonlySet<ExperimentState> = new Set([
 
 function isTerminal(state: ExperimentState): boolean {
   return TERMINAL_STATES.has(state);
+}
+
+const PASSIVE_TERMINAL_STATES: ReadonlySet<PassiveCheckState> = new Set([
+  'COMPLETED', 'FAILED', 'TARGET_LOST',
+]);
+
+function isPassiveTerminal(state: PassiveCheckState): boolean {
+  return PASSIVE_TERMINAL_STATES.has(state);
 }
 
 function now(): number { return Date.now(); }
@@ -359,54 +373,79 @@ export const WATCHDOG_STALENESS_THRESHOLD_MS = 30_000;
  */
 export async function checkRunWatchdog(): Promise<void> {
   const run = getCurrentRun();
-  if (run === null || isTerminal(run.state)) return;
+  if (run !== null && !isTerminal(run.state)) {
+    const durationMs =
+      typeof run.definition.params.durationMs === 'number'
+        ? run.definition.params.durationMs
+        : 5_000;
+    const recoveryWindowMs =
+      typeof run.definition.params.recoveryWindowMs === 'number'
+        ? run.definition.params.recoveryWindowMs
+        : 8_000;
 
-  const durationMs =
-    typeof run.definition.params.durationMs === 'number'
-      ? run.definition.params.durationMs
-      : 5_000;
-  const recoveryWindowMs =
-    typeof run.definition.params.recoveryWindowMs === 'number'
-      ? run.definition.params.recoveryWindowMs
-      : 8_000;
+    const timeSinceLastUpdate = now() - run.updatedAt;
+    const totalElapsed = now() - run.createdAt;
+    const maxAllowedTotal = durationMs + recoveryWindowMs + 30_000;
 
-  const timeSinceLastUpdate = now() - run.updatedAt;
-  const totalElapsed = now() - run.createdAt;
-  const maxAllowedTotal = durationMs + recoveryWindowMs + 30_000;
+    if (timeSinceLastUpdate > WATCHDOG_STALENESS_THRESHOLD_MS || totalElapsed > maxAllowedTotal) {
+      console.warn(
+        `[HAVOC][watchdog] run ${run.runId} appears dead in state "${run.state}" ` +
+        `(no update for ${Math.round(timeSinceLastUpdate / 1000)}s, total elapsed: ${Math.round(totalElapsed / 1000)}s) — forcing TIMED_OUT`
+      );
 
-  if (timeSinceLastUpdate > WATCHDOG_STALENESS_THRESHOLD_MS || totalElapsed > maxAllowedTotal) {
-    console.warn(
-      `[HAVOC][watchdog] run ${run.runId} appears dead in state "${run.state}" ` +
-      `(no update for ${Math.round(timeSinceLastUpdate / 1000)}s, total elapsed: ${Math.round(totalElapsed / 1000)}s) — forcing TIMED_OUT`
-    );
-
-    // Defensive tab-level chaos cleanup
-    if (typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
-      try {
-        await chrome.tabs.sendMessage(
-          run.target.tabId,
-          createBridgeMessage('REMOVE_CHAOS', { injectionId: '' })
-        );
-      } catch {
-        // Tab may be closed or content script unreachable
+      // Defensive tab-level chaos cleanup
+      if (typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+        try {
+          await chrome.tabs.sendMessage(
+            run.target.tabId,
+            createBridgeMessage('REMOVE_CHAOS', { injectionId: '' })
+          );
+        } catch {
+          // Tab may be closed or content script unreachable
+        }
       }
+
+      const timedOutRun: ExperimentRun = {
+        ...run,
+        state: 'TIMED_OUT',
+        updatedAt: now(),
+      };
+
+      await checkpoint(null);
+      await saveRun(timedOutRun).catch((err) => {
+        console.error('[HAVOC][watchdog] failed to save TIMED_OUT run:', err);
+      });
+      await applyRetention().catch((err) => {
+        console.error('[HAVOC][watchdog] failed to apply retention:', err);
+      });
+      broadcastStateUpdate(null, 'TIMED_OUT');
+      console.log(`[HAVOC][watchdog] run ${run.runId} transitioned to TIMED_OUT and cleared`);
     }
+  }
 
-    const timedOutRun: ExperimentRun = {
-      ...run,
-      state: 'TIMED_OUT',
-      updatedAt: now(),
-    };
+  // --- Passive Run Watchdog ---
+  const passiveRun = getCurrentPassiveRun();
+  if (passiveRun !== null && !isPassiveTerminal(passiveRun.state)) {
+    const observeMs =
+      typeof passiveRun.definition.params.observeMs === 'number'
+        ? passiveRun.definition.params.observeMs
+        : 5_000;
+    const timeSinceLastPassiveUpdate = now() - passiveRun.updatedAt;
+    const totalPassiveElapsed = now() - passiveRun.createdAt;
+    const maxAllowedPassiveTotal = observeMs + 20_000;
 
-    await checkpoint(null);
-    await saveRun(timedOutRun).catch((err) => {
-      console.error('[HAVOC][watchdog] failed to save TIMED_OUT run:', err);
-    });
-    await applyRetention().catch((err) => {
-      console.error('[HAVOC][watchdog] failed to apply retention:', err);
-    });
-    broadcastStateUpdate(null, 'TIMED_OUT');
-    console.log(`[HAVOC][watchdog] run ${run.runId} transitioned to TIMED_OUT and cleared`);
+    if (
+      timeSinceLastPassiveUpdate > WATCHDOG_STALENESS_THRESHOLD_MS ||
+      totalPassiveElapsed > maxAllowedPassiveTotal
+    ) {
+      console.warn(
+        `[HAVOC][watchdog] passive run ${passiveRun.runId} appears dead in state "${passiveRun.state}" ` +
+        `(no update for ${Math.round(timeSinceLastPassiveUpdate / 1000)}s, total elapsed: ${Math.round(totalPassiveElapsed / 1000)}s) — forcing FAILED`
+      );
+
+      await checkpointPassiveRun(null);
+      console.log(`[HAVOC][watchdog] passive run ${passiveRun.runId} cleared`);
+    }
   }
 }
 

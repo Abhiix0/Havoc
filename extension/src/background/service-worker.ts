@@ -32,7 +32,7 @@ import {
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
 import { saveEvent, saveSignals } from '../storage/repository';
-import { rehydrate, getCurrentRun } from './state';
+import { rehydrate, rehydratePassiveRun, getCurrentRun } from './state';
 import {
   startRun,
   abortRun,
@@ -348,6 +348,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
 // ---------------------------------------------------------------------------
 const startupPromise = Promise.all([
   rehydrate(),
+  rehydratePassiveRun(),
   openDatabase()
     .then(() => console.log('[HAVOC][SW] IndexedDB ready'))
     .catch((err: unknown) => console.error('[HAVOC][SW] IndexedDB failed to open', err)),
