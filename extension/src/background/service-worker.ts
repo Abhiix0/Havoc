@@ -18,6 +18,7 @@ import {
   createCurrentRunResponseMessage,
   createCreateRunResponseMessage,
   createCreateShipCheckResponseMessage,
+  createCurrentShipCheckResponseMessage,
   type ObservationPayload,
   type DomObservationPayload,
 } from '../messaging/messages';
@@ -29,9 +30,10 @@ import {
   isDomObservationMessage,
   isAbortRunMessage,
   isCreateShipCheckMessage,
+  isGetCurrentShipCheckMessage,
 } from '../messaging/validator';
 import { openDatabase } from '../storage/database';
-import { saveEvent, saveSignals } from '../storage/repository';
+import { saveEvent, saveSignals, getShipCheck } from '../storage/repository';
 import { rehydrate, rehydratePassiveRun, getCurrentRun } from './state';
 import {
   startRun,
@@ -46,7 +48,7 @@ import { sanitizeUrl } from '../shared/sanitize-url';
 import { runtimeErrorObserverExecutor } from './engine/runtime-error-observer';
 import { secretScannerExecutor } from './engine/secret-scanner';
 import { registerPassiveCheckExecutor } from './engine/passive-check-runner';
-import { startShipCheck } from './engine/ship-check-orchestrator';
+import { startShipCheck, getActiveShipCheckId } from './engine/ship-check-orchestrator';
 import type { HavocEvent } from '../domain/event';
 import type { Target } from '../domain/target';
 
@@ -249,6 +251,24 @@ export function handleIncomingMessage(
     return true;
   }
 
+  // --- GET_CURRENT_SHIP_CHECK (popup → SW) ---
+  if (isGetCurrentShipCheckMessage(message)) {
+    const activeId = getActiveShipCheckId();
+    if (activeId !== null) {
+      getShipCheck(activeId)
+        .then((run) => {
+          sendResponse(createCurrentShipCheckResponseMessage(run ?? null));
+        })
+        .catch((err: unknown) => {
+          console.error('[HAVOC][SW] failed to get current ship check:', err);
+          sendResponse(createCurrentShipCheckResponseMessage(null));
+        });
+    } else {
+      sendResponse(createCurrentShipCheckResponseMessage(null));
+    }
+    return true;
+  }
+
   // --- CREATE_SHIP_CHECK (popup → SW) ---
   if (isCreateShipCheckMessage(message)) {
     (async () => {
@@ -265,14 +285,16 @@ export function handleIncomingMessage(
           return;
         }
 
+        const runPromise = startShipCheck(target);
         sendResponse(createCreateShipCheckResponseMessage(undefined));
 
-        startShipCheck(target).catch((err: unknown) => {
+        runPromise.catch((err: unknown) => {
           console.error('[HAVOC][SW] startShipCheck error:', err);
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        sendResponse(createCreateShipCheckResponseMessage(undefined, msg));
+        const alreadyActive = msg.includes('already running');
+        sendResponse(createCreateShipCheckResponseMessage(undefined, msg, alreadyActive));
       }
     })();
     return true;

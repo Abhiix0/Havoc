@@ -2,11 +2,17 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { checkpoint, rehydratePassiveRun, getCurrentPassiveRun } from '../state';
 import { handleIncomingMessage } from '../service-worker';
-import { getEventsByRunId } from '../../storage/repository';
+import { getEventsByRunId, saveShipCheck } from '../../storage/repository';
+import * as shipCheckOrchestrator from '../engine/ship-check-orchestrator';
 import { clearRunBuffer, getRunSnapshot } from '../engine/signal-engine';
-import { createBridgeMessage, createDomObservationMessage } from '../../messaging/messages';
+import {
+  createBridgeMessage,
+  createDomObservationMessage,
+  createGetCurrentShipCheckMessage,
+} from '../../messaging/messages';
 import type { ExperimentRun } from '../../domain/run';
 import type { PassiveCheckRun } from '../../domain/passive-check';
+import type { ShipCheckRun } from '../../domain/ship-check';
 import type { Target } from '../../domain/target';
 import type { ExperimentDefinition } from '../../domain/experiment';
 
@@ -410,6 +416,55 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
       await rehydratePassiveRun();
 
       expect(getCurrentPassiveRun()).toEqual(passiveRun);
+    });
+  });
+
+  describe('GET_CURRENT_SHIP_CHECK handling', () => {
+    it('returns null if no ship check is active', async () => {
+      const message = createGetCurrentShipCheckMessage();
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CURRENT_SHIP_CHECK_RESPONSE',
+          shipCheck: null,
+        })
+      );
+    });
+
+    it('returns active ship check from repository when getActiveShipCheckId is non-null', async () => {
+      const activeShipCheck: ShipCheckRun = {
+        shipCheckId: 'sc-sw-active-1',
+        target,
+        steps: [
+          { kind: 'runtime_errors', runId: 'r-1', status: 'RUNNING' },
+        ],
+        createdAt: 1000,
+        readiness: 'UNKNOWN',
+      };
+      await saveShipCheck(activeShipCheck);
+
+      vi.spyOn(shipCheckOrchestrator, 'getActiveShipCheckId').mockReturnValue('sc-sw-active-1');
+
+      const message = createGetCurrentShipCheckMessage();
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      // Wait a tick for async getShipCheck resolution
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CURRENT_SHIP_CHECK_RESPONSE',
+          shipCheck: expect.objectContaining({ shipCheckId: 'sc-sw-active-1' }),
+        })
+      );
     });
   });
 });

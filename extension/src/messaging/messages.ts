@@ -45,7 +45,9 @@ export type RuntimeMessageType =
   | 'PASSIVE_RUN_STATE_UPDATE'
   | 'CREATE_SHIP_CHECK'
   | 'CREATE_SHIP_CHECK_RESPONSE'
-  | 'SHIP_CHECK_STEP_UPDATE';
+  | 'SHIP_CHECK_STEP_UPDATE'
+  | 'GET_CURRENT_SHIP_CHECK'
+  | 'CURRENT_SHIP_CHECK_RESPONSE';
 
 export type AnyMessageType = BridgeMessageType | RuntimeMessageType;
 
@@ -419,10 +421,20 @@ export interface CreateShipCheckResponseMessage extends RuntimeMessage {
   type: 'CREATE_SHIP_CHECK_RESPONSE';
   shipCheck?: ShipCheckRun;
   error?: string;
+  alreadyActive?: boolean;
 }
 
 export interface ShipCheckStepUpdateMessage extends RuntimeMessage {
   type: 'SHIP_CHECK_STEP_UPDATE';
+  shipCheck: ShipCheckRun | null;
+}
+
+export interface GetCurrentShipCheckMessage extends RuntimeMessage {
+  type: 'GET_CURRENT_SHIP_CHECK';
+}
+
+export interface CurrentShipCheckResponseMessage extends RuntimeMessage {
+  type: 'CURRENT_SHIP_CHECK_RESPONSE';
   shipCheck: ShipCheckRun | null;
 }
 
@@ -439,7 +451,8 @@ export function createCreateShipCheckMessage(
 
 export function createCreateShipCheckResponseMessage(
   shipCheck: ShipCheckRun | undefined,
-  error?: string
+  error?: string,
+  alreadyActive?: boolean
 ): CreateShipCheckResponseMessage {
   return {
     namespace: HAVOC_NAMESPACE,
@@ -447,6 +460,7 @@ export function createCreateShipCheckResponseMessage(
     type: 'CREATE_SHIP_CHECK_RESPONSE',
     ...(shipCheck !== undefined && { shipCheck }),
     ...(error !== undefined && { error }),
+    ...(alreadyActive !== undefined && { alreadyActive }),
   };
 }
 
@@ -457,6 +471,25 @@ export function createShipCheckStepUpdateMessage(
     namespace: HAVOC_NAMESPACE,
     version: BRIDGE_PROTOCOL_VERSION,
     type: 'SHIP_CHECK_STEP_UPDATE',
+    shipCheck,
+  };
+}
+
+export function createGetCurrentShipCheckMessage(): GetCurrentShipCheckMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'GET_CURRENT_SHIP_CHECK',
+  };
+}
+
+export function createCurrentShipCheckResponseMessage(
+  shipCheck: ShipCheckRun | null
+): CurrentShipCheckResponseMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'CURRENT_SHIP_CHECK_RESPONSE',
     shipCheck,
   };
 }

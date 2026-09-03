@@ -38,7 +38,7 @@ import {
   getFindingsByRunId,
   saveRemediation,
 } from '../../../storage/repository';
-import { startShipCheck } from '../ship-check-orchestrator';
+import { startShipCheck, getActiveShipCheckId } from '../ship-check-orchestrator';
 
 describe('Ship Check Orchestrator', () => {
   const target: Target = {
@@ -259,5 +259,72 @@ describe('Ship Check Orchestrator', () => {
     expect(result.steps.find((s) => s.kind === 'fetch_failure')?.status).toBe('ERRORED');
     expect(result.steps.filter((s) => s.status === 'DONE')).toHaveLength(5);
     expect(result.readiness).toBe('UNKNOWN'); // 1 errored step -> UNKNOWN
+  });
+
+  it('Concurrent execution guard: second startShipCheck rejects while first is in-flight; clears active ID on completion', async () => {
+    vi.mocked(verifyTarget).mockResolvedValue({ ok: true });
+
+    let resolveFirstStep: ((run: PassiveCheckRun) => void) | null = null;
+    const firstStepPromise = new Promise<PassiveCheckRun>((res) => {
+      resolveFirstStep = res;
+    });
+
+    vi.mocked(startPassiveCheck).mockImplementation((def) => {
+      if (def.kind === 'runtime_errors') {
+        return firstStepPromise;
+      }
+      return Promise.resolve({
+        runId: `run-${def.kind}`,
+        target,
+        definition: def,
+        state: 'COMPLETED',
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+    });
+
+    vi.mocked(startRun).mockImplementation(async (def) => ({
+      runId: `run-${def.kind}`,
+      target,
+      definition: def,
+      state: 'COMPLETED',
+      createdAt: 1000,
+      updatedAt: 2000,
+    }));
+
+    // Start first ship check
+    const firstPromise = startShipCheck(target);
+
+    // Verify active ID is set
+    const activeId = getActiveShipCheckId();
+    expect(activeId).not.toBeNull();
+
+    // Second startShipCheck must reject immediately
+    await expect(startShipCheck(target)).rejects.toThrow(/already running/);
+
+    // Resolve first step
+    resolveFirstStep!({
+      runId: 'run-runtime_errors',
+      target,
+      definition: {
+        id: 'def-runtime',
+        kind: 'runtime_errors',
+        name: 'Runtime',
+        description: 'Test',
+        params: {},
+      },
+      state: 'COMPLETED',
+      createdAt: 1000,
+      updatedAt: 2000,
+    });
+
+    const firstResult = await firstPromise;
+    expect(firstResult.shipCheckId).toBe(activeId);
+    expect(getActiveShipCheckId()).toBeNull();
+
+    // Subsequent startShipCheck should now succeed normally
+    const secondResult = await startShipCheck(target);
+    expect(secondResult.shipCheckId).toBeDefined();
+    expect(getActiveShipCheckId()).toBeNull();
   });
 });

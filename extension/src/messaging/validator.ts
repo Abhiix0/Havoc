@@ -300,3 +300,15 @@ export function isShipCheckStepUpdateMessage(
 ): data is import('./messages').ShipCheckStepUpdateMessage {
   return isRuntimeMessageBase(data) && data.type === 'SHIP_CHECK_STEP_UPDATE';
 }
+
+export function isGetCurrentShipCheckMessage(
+  data: unknown
+): data is import('./messages').GetCurrentShipCheckMessage {
+  return isRuntimeMessageBase(data) && data.type === 'GET_CURRENT_SHIP_CHECK';
+}
+
+export function isCurrentShipCheckResponseMessage(
+  data: unknown
+): data is import('./messages').CurrentShipCheckResponseMessage {
+  return isRuntimeMessageBase(data) && data.type === 'CURRENT_SHIP_CHECK_RESPONSE';
+}

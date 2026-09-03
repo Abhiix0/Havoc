@@ -9,6 +9,7 @@ import {
   startShipCheck,
   loadShipCheck,
   setupShipCheckStore,
+  syncShipCheckState,
   handleShipCheckMessage,
 } from '../ship-check';
 import {
@@ -167,5 +168,57 @@ describe('Ship Check Store', () => {
     expect(details.findings[0]?.id).toBe('f-1');
     expect(details.remediations).toHaveLength(1);
     expect(details.remediations[0]?.id).toBe('rem-1');
+  });
+
+  it('syncShipCheckState sends GET_CURRENT_SHIP_CHECK and populates currentShipCheck from a non-null response', async () => {
+    const runningShipCheck: ShipCheckRun = {
+      shipCheckId: 'sc-sync-active-1',
+      target: { tabId: 101, origin: 'https://example.com', url: 'https://example.com/app', frameId: 0 },
+      steps: [
+        { kind: 'runtime_errors', runId: 'r-1', status: 'DONE' },
+        { kind: 'fetch_latency', runId: 'r-2', status: 'RUNNING' },
+      ],
+      createdAt: 1000,
+      readiness: 'UNKNOWN',
+    };
+
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
+      type: 'CURRENT_SHIP_CHECK_RESPONSE',
+      shipCheck: runningShipCheck,
+    });
+
+    await syncShipCheckState();
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'GET_CURRENT_SHIP_CHECK' })
+    );
+    expect(get(currentShipCheck)).toEqual(runningShipCheck);
+    expect(get(shipCheckError)).toBeNull();
+  });
+
+  it('syncShipCheckState with a null response leaves currentShipCheck as null without throwing', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
+      type: 'CURRENT_SHIP_CHECK_RESPONSE',
+      shipCheck: null,
+    });
+
+    await syncShipCheckState();
+
+    expect(get(currentShipCheck)).toBeNull();
+    expect(get(shipCheckError)).toBeNull();
+  });
+
+  it('startShipCheck when already running surfaces a friendly error message', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValueOnce({
+      type: 'CREATE_SHIP_CHECK_RESPONSE',
+      error: 'Cannot start a new Ship Check — one is already running (sc-123)',
+      alreadyActive: true,
+    });
+
+    const result = await startShipCheck();
+    expect(result).toBe(false);
+    expect(get(shipCheckError)).toBe(
+      'A Ship Check is already running — check the Running screen'
+    );
   });
 });

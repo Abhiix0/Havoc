@@ -63,6 +63,12 @@ export const SHIP_CHECK_STEPS: Array<{
   { kind: 'secret_scan', runner: 'passive' },
 ];
 
+let _activeShipCheckId: string | null = null;
+
+export function getActiveShipCheckId(): string | null {
+  return _activeShipCheckId;
+}
+
 function broadcastShipCheckUpdate(shipCheck: ShipCheckRun): void {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
   chrome.runtime.sendMessage(createShipCheckStepUpdateMessage(shipCheck)).catch(() => {
@@ -146,21 +152,29 @@ function buildStepDefinition(
  * Evaluates readiness verdict and persists findings and remediations.
  */
 export async function startShipCheck(target: Target): Promise<ShipCheckRun> {
+  if (_activeShipCheckId !== null) {
+    throw new Error(
+      `Cannot start a new Ship Check — one is already running (${_activeShipCheckId})`
+    );
+  }
+
   const shipCheckId = crypto.randomUUID();
+  _activeShipCheckId = shipCheckId;
 
-  const steps: ShipCheckStep[] = SHIP_CHECK_STEPS.map((step) => ({
-    kind: step.kind,
-    runId: '',
-    status: 'PENDING',
-  }));
+  try {
+    const steps: ShipCheckStep[] = SHIP_CHECK_STEPS.map((step) => ({
+      kind: step.kind,
+      runId: '',
+      status: 'PENDING',
+    }));
 
-  const shipCheckRun: ShipCheckRun = {
-    shipCheckId,
-    target,
-    steps,
-    createdAt: Date.now(),
-    readiness: 'UNKNOWN',
-  };
+    const shipCheckRun: ShipCheckRun = {
+      shipCheckId,
+      target,
+      steps,
+      createdAt: Date.now(),
+      readiness: 'UNKNOWN',
+    };
 
   await saveShipCheck(shipCheckRun).catch((err: unknown) => {
     console.error('[HAVOC][ship-check] failed to persist initial state:', err);
@@ -316,27 +330,30 @@ export async function startShipCheck(target: Target): Promise<ShipCheckRun> {
     }
   }
 
-  // Gather all findings across all step runIds
-  const allFindings: Finding[] = [];
-  for (const step of shipCheckRun.steps) {
-    if (step.runId) {
-      const findings = await getFindingsByRunId(step.runId);
-      allFindings.push(...findings);
+    // Gather all findings across all step runIds
+    const allFindings: Finding[] = [];
+    for (const step of shipCheckRun.steps) {
+      if (step.runId) {
+        const findings = await getFindingsByRunId(step.runId);
+        allFindings.push(...findings);
+      }
     }
+
+    const erroredStepCount = shipCheckRun.steps.filter((s) => s.status === 'ERRORED').length;
+    shipCheckRun.readiness = computeReadiness(allFindings, erroredStepCount);
+    shipCheckRun.completedAt = Date.now();
+
+    await saveShipCheck(shipCheckRun).catch((err: unknown) => {
+      console.error('[HAVOC][ship-check] failed to persist final ship check state:', err);
+    });
+    broadcastShipCheckUpdate(shipCheckRun);
+
+    applyShipCheckRetention().catch((err: unknown) => {
+      console.error('[HAVOC][ship-check] retention error:', err);
+    });
+
+    return shipCheckRun;
+  } finally {
+    _activeShipCheckId = null;
   }
-
-  const erroredStepCount = shipCheckRun.steps.filter((s) => s.status === 'ERRORED').length;
-  shipCheckRun.readiness = computeReadiness(allFindings, erroredStepCount);
-  shipCheckRun.completedAt = Date.now();
-
-  await saveShipCheck(shipCheckRun).catch((err: unknown) => {
-    console.error('[HAVOC][ship-check] failed to persist final ship check state:', err);
-  });
-  broadcastShipCheckUpdate(shipCheckRun);
-
-  applyShipCheckRetention().catch((err: unknown) => {
-    console.error('[HAVOC][ship-check] retention error:', err);
-  });
-
-  return shipCheckRun;
 }

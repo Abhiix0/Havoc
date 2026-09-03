@@ -3,8 +3,14 @@ import type { ShipCheckRun } from '../../../domain/ship-check';
 import type { Finding } from '../../../domain/finding';
 import type { Remediation } from '../../../domain/remediation';
 import type { Target } from '../../../domain/target';
-import { createCreateShipCheckMessage } from '../../../messaging/messages';
-import { isShipCheckStepUpdateMessage } from '../../../messaging/validator';
+import {
+  createCreateShipCheckMessage,
+  createGetCurrentShipCheckMessage,
+} from '../../../messaging/messages';
+import {
+  isShipCheckStepUpdateMessage,
+  isCurrentShipCheckResponseMessage,
+} from '../../../messaging/validator';
 import {
   getShipCheck,
   getFindingsByRunId,
@@ -38,6 +44,23 @@ export function handleShipCheckMessage(message: unknown): void {
 // Store Operations
 // ---------------------------------------------------------------------------
 
+export async function syncShipCheckState(): Promise<void> {
+  shipCheckLoading.set(true);
+  shipCheckError.set(null);
+  try {
+    const response: unknown = await chrome.runtime.sendMessage(
+      createGetCurrentShipCheckMessage()
+    );
+    if (isCurrentShipCheckResponseMessage(response) && response.shipCheck) {
+      currentShipCheck.set(response.shipCheck);
+    }
+  } catch (e) {
+    console.error('[HAVOC][ship-check-store] syncShipCheckState error', e);
+  } finally {
+    shipCheckLoading.set(false);
+  }
+}
+
 export async function resolveActiveTabTarget(): Promise<Target | undefined> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -67,7 +90,15 @@ export async function startShipCheck(): Promise<boolean> {
     );
 
     if (response && typeof response === 'object' && 'error' in response && response.error) {
-      shipCheckError.set(String(response.error));
+      const isAlreadyActive =
+        ('alreadyActive' in response && Boolean(response.alreadyActive)) ||
+        String(response.error).toLowerCase().includes('already running');
+
+      if (isAlreadyActive) {
+        shipCheckError.set('A Ship Check is already running — check the Running screen');
+      } else {
+        shipCheckError.set(String(response.error));
+      }
       shipCheckLoading.set(false);
       return false;
     }
@@ -108,6 +139,10 @@ export async function loadShipCheck(shipCheckId: string): Promise<{
 }
 
 export function setupShipCheckStore(): () => void {
+  syncShipCheckState().catch((e) => {
+    console.error('[HAVOC][ship-check-store] initial sync error', e);
+  });
+
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener(handleShipCheckMessage);
   }

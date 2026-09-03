@@ -2,7 +2,11 @@
   import { onMount } from 'svelte';
   import type { ExperimentKind } from '../domain/experiment';
   import { isRunActive, setupRunStore } from './lib/stores/run';
-  import { isShipCheckActive, setupShipCheckStore } from './lib/stores/ship-check';
+  import {
+    isShipCheckActive,
+    setupShipCheckStore,
+    syncShipCheckState,
+  } from './lib/stores/ship-check';
   import HomeScreen from './lib/screens/HomeScreen.svelte';
   import ExperimentSelectScreen from './lib/screens/ExperimentSelectScreen.svelte';
   import ConfigureScreen from './lib/screens/ConfigureScreen.svelte';
@@ -30,6 +34,7 @@
   onMount(() => {
     const cleanup1 = setupRunStore();
     const cleanup2 = setupShipCheckStore();
+    syncShipCheckState().catch(() => {});
     return () => {
       cleanup1();
       cleanup2();
