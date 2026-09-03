@@ -339,4 +339,49 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
       expect(debugEvents).toHaveLength(0);
     });
   });
+
+  describe('RUNTIME_ERROR_OBSERVATION message bypass', () => {
+    it('does not intercept or persist RUNTIME_ERROR_OBSERVATION in global handler (handled exclusively by scoped executor listener)', async () => {
+      const message = {
+        namespace: 'havoc',
+        version: 1,
+        type: 'RUNTIME_ERROR_OBSERVATION',
+        payload: {
+          observationId: 'obs-err-bypass-1',
+          kind: 'uncaught_exception',
+          message: 'Uncaught Error: Test',
+          filename: 'app.js',
+          lineno: 10,
+          colno: 5,
+          timestamp: Date.now(),
+          runId: null,
+        },
+      };
+
+      const sender: chrome.runtime.MessageSender = {
+        tab: {
+          id: activeTabId,
+          index: 0,
+          pinned: false,
+          highlighted: false,
+          windowId: 1,
+          active: true,
+          incognito: false,
+          selected: true,
+          discarded: false,
+          autoDiscardable: true,
+          groupId: -1,
+        },
+      };
+
+      const sendResponse = vi.fn();
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+
+      expect(handled).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+
+      const events = await getEventsByRunId('test-runtime-error-bypass-run');
+      expect(events).toHaveLength(0);
+    });
+  });
 });
