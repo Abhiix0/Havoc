@@ -433,7 +433,7 @@ export function wrapXHR(): void {
     private _havocStartTime: number = 0;
     private _havocUrl: string = '';
     private _havocMethod: string = 'GET';
-    private _havocInjectionId?: string;
+    private _havocInjectionId?: string | undefined;
 
     override open(
       method: string,

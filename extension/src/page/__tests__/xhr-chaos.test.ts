@@ -79,8 +79,8 @@ class MockProgressEvent extends Event {
   total: number = 0;
 }
 
-if (typeof (globalThis as Record<string, unknown>).ProgressEvent === 'undefined') {
-  (globalThis as Record<string, unknown>).ProgressEvent = MockProgressEvent;
+if (typeof ProgressEvent === 'undefined') {
+  vi.stubGlobal('ProgressEvent', MockProgressEvent);
 }
 
 describe('XMLHttpRequest Chaos Parity', () => {
@@ -101,7 +101,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
       dispatchEvent: vi.fn(),
     };
 
-    (globalThis as Record<string, unknown>).window = mockWindow;
+    vi.stubGlobal('window', mockWindow);
 
     wrapXHR();
   });
@@ -112,6 +112,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
       deactivateChaos(active.injectionId);
     }
     restoreXHR();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -124,7 +125,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
     };
     activateChaos(params);
 
-    const xhr = new (globalThis as Record<string, unknown>).window.XMLHttpRequest();
+    const xhr = new window.XMLHttpRequest();
     xhr.open('POST', 'https://example.com/api/save');
     xhr.send('payload=test');
 
@@ -169,7 +170,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
     };
     activateChaos(params);
 
-    const xhr = new (globalThis as Record<string, unknown>).window.XMLHttpRequest();
+    const xhr = new window.XMLHttpRequest();
     xhr.open('GET', 'https://example.com/api/items');
 
     let appErrorFired = false;
@@ -224,7 +225,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
     };
     activateChaos(params);
 
-    const xhr = new (globalThis as Record<string, unknown>).window.XMLHttpRequest();
+    const xhr = new window.XMLHttpRequest();
     xhr.open('GET', 'https://example.com/api/slow');
     xhr.send();
 
@@ -268,7 +269,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
     };
     activateChaos(params);
 
-    const xhr = new (globalThis as Record<string, unknown>).window.XMLHttpRequest();
+    const xhr = new window.XMLHttpRequest();
     xhr.open('POST', 'https://example.com/api/checkout');
 
     let appLoadFired = false;
@@ -317,7 +318,7 @@ describe('XMLHttpRequest Chaos Parity', () => {
   });
 
   it('5. Inactive chaos (_chaosConfig is null): XHR behaves completely unchanged from stock XMLHttpRequest', () => {
-    const xhr = new (globalThis as Record<string, unknown>).window.XMLHttpRequest();
+    const xhr = new window.XMLHttpRequest();
     xhr.open('GET', 'https://example.com/api/stock');
     xhr.send('unmodified');
 
