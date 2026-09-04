@@ -243,6 +243,8 @@ export interface RuntimeErrorPayload {
   colno: number;
   timestamp: number;
   runId: string | null;
+  /** Session nonce proving origin from HAVOC's page instrumentation. */
+  nonce?: string | undefined;
 }
 
 export interface RuntimeErrorObservationMessage {
@@ -293,6 +295,8 @@ export interface ObservationPayload {
    * Links back to the CHAOS_INJECTED event with this id.
    */
   injectionId?: string;
+  /** Session nonce proving origin from HAVOC's page instrumentation. */
+  nonce?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------

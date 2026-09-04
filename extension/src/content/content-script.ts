@@ -71,10 +71,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // ---------------------------------------------------------------------------
 // Page → SW relay: BRIDGE_HELLO, REQUEST_OBSERVATION.
 // ---------------------------------------------------------------------------
+let _sessionNonce: string | null = null;
+
+export function getSessionNonceForTesting(): string | null {
+  return _sessionNonce;
+}
+
+export function resetSessionNonceForTesting(): void {
+  _sessionNonce = null;
+}
+
 window.addEventListener('message', (event: MessageEvent) => {
   if (event.source !== window) return;
 
   if (isObservationMessage(event.data)) {
+    const payloadNonce = event.data.payload.nonce;
+    if (!_sessionNonce || payloadNonce !== _sessionNonce) {
+      console.warn('[HAVOC][content] dropping unverified REQUEST_OBSERVATION message: invalid or missing session nonce');
+      return;
+    }
+
     chrome.runtime.sendMessage(event.data, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[HAVOC][content] SW unreachable forwarding observation', chrome.runtime.lastError.message);
@@ -85,6 +101,12 @@ window.addEventListener('message', (event: MessageEvent) => {
   }
 
   if (isRuntimeErrorObservationMessage(event.data)) {
+    const payloadNonce = event.data.payload.nonce;
+    if (!_sessionNonce || payloadNonce !== _sessionNonce) {
+      console.warn('[HAVOC][content] dropping unverified RUNTIME_ERROR_OBSERVATION message: invalid or missing session nonce');
+      return;
+    }
+
     chrome.runtime.sendMessage(event.data, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[HAVOC][content] SW unreachable forwarding runtime error', chrome.runtime.lastError.message);
@@ -97,6 +119,7 @@ window.addEventListener('message', (event: MessageEvent) => {
   if (!isBridgeMessage(event.data)) return;
   if (event.data.type !== 'BRIDGE_HELLO') return;
 
+  _sessionNonce = crypto.randomUUID();
   console.log('[HAVOC][content] forwarding BRIDGE_HELLO to service worker');
 
   chrome.runtime.sendMessage(event.data, (response) => {
@@ -109,7 +132,13 @@ window.addEventListener('message', (event: MessageEvent) => {
       return;
     }
     if (isBridgeMessage(response)) {
-      window.postMessage(response, '*');
+      const readyPayload = response.type === 'BRIDGE_READY'
+        ? { ...(response.payload ?? {}), nonce: _sessionNonce }
+        : response.payload;
+      window.postMessage(
+        createBridgeMessage(response.type, readyPayload),
+        '*'
+      );
     }
   });
 });

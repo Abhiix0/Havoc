@@ -25,55 +25,70 @@ import {
   deactivateRuntimeErrorCapture,
 } from './runtime-error-capture';
 
-console.log('[HAVOC][page] bridge script running in page world');
+let _sessionNonce: string | null = null;
 
-window.addEventListener('message', (event: MessageEvent) => {
-  if (event.source !== window) return;
+export function setSessionNonce(nonce: string | null): void {
+  _sessionNonce = nonce;
+}
 
-  // Chaos commands arrive as plain BridgeMessages — check them before the
-  // generic isBridgeMessage path so they get their typed payload validated.
-  if (isChaosMessage(event.data)) {
-    console.log('[HAVOC][page] INJECT_CHAOS received:', event.data.payload.kind, event.data.payload.injectionId);
-    activateChaos(event.data.payload);
-    return;
-  }
+export function getSessionNonce(): string | null {
+  return _sessionNonce;
+}
 
-  if (isRemoveChaosMessage(event.data)) {
-    console.log('[HAVOC][page] REMOVE_CHAOS received:', event.data.payload.injectionId);
-    deactivateChaos(event.data.payload.injectionId);
-    return;
-  }
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (event.source !== window) return;
 
-  if (!isBridgeMessage(event.data)) return;
+    // Chaos commands arrive as plain BridgeMessages — check them before the
+    // generic isBridgeMessage path so they get their typed payload validated.
+    if (isChaosMessage(event.data)) {
+      console.log('[HAVOC][page] INJECT_CHAOS received:', event.data.payload.kind, event.data.payload.injectionId);
+      activateChaos(event.data.payload);
+      return;
+    }
 
-  switch (event.data.type) {
-    case 'BRIDGE_READY':
-      console.log('[HAVOC][page] handshake complete — activating instrumentation');
-      activateInstrumentation();
-      break;
+    if (isRemoveChaosMessage(event.data)) {
+      console.log('[HAVOC][page] REMOVE_CHAOS received:', event.data.payload.injectionId);
+      deactivateChaos(event.data.payload.injectionId);
+      return;
+    }
 
-    case 'BRIDGE_ERROR':
-      console.error(
-        '[HAVOC][page] bridge error from content script — instrumentation NOT activated',
-        event.data.payload
-      );
-      deactivateInstrumentation();
-      break;
+    if (!isBridgeMessage(event.data)) return;
 
-    case 'ENABLE_RUNTIME_ERROR_CAPTURE':
-      console.log('[HAVOC][page] ENABLE_RUNTIME_ERROR_CAPTURE received');
-      activateRuntimeErrorCapture();
-      break;
+    switch (event.data.type) {
+      case 'BRIDGE_READY': {
+        const payload = event.data.payload as { nonce?: string } | undefined;
+        const nonce = typeof payload?.nonce === 'string' ? payload.nonce : null;
+        setSessionNonce(nonce);
+        console.log('[HAVOC][page] handshake complete — activating instrumentation');
+        activateInstrumentation();
+        break;
+      }
 
-    case 'DISABLE_RUNTIME_ERROR_CAPTURE':
-      console.log('[HAVOC][page] DISABLE_RUNTIME_ERROR_CAPTURE received');
-      deactivateRuntimeErrorCapture();
-      break;
+      case 'BRIDGE_ERROR':
+        console.error(
+          '[HAVOC][page] bridge error from content script — instrumentation NOT activated',
+          event.data.payload
+        );
+        setSessionNonce(null);
+        deactivateInstrumentation();
+        break;
 
-    default:
-      // BRIDGE_HELLO / REQUEST_OBSERVATION echoes — ignore.
-      break;
-  }
-});
+      case 'ENABLE_RUNTIME_ERROR_CAPTURE':
+        console.log('[HAVOC][page] ENABLE_RUNTIME_ERROR_CAPTURE received');
+        activateRuntimeErrorCapture();
+        break;
 
-window.postMessage(createBridgeMessage('BRIDGE_HELLO'), '*');
+      case 'DISABLE_RUNTIME_ERROR_CAPTURE':
+        console.log('[HAVOC][page] DISABLE_RUNTIME_ERROR_CAPTURE received');
+        deactivateRuntimeErrorCapture();
+        break;
+
+      default:
+        // BRIDGE_HELLO / REQUEST_OBSERVATION echoes — ignore.
+        break;
+    }
+  });
+
+  window.postMessage(createBridgeMessage('BRIDGE_HELLO'), '*');
+}

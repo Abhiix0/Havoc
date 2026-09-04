@@ -6,6 +6,7 @@
 
 import { sanitizeUrl } from '../shared/sanitize-url';
 import { createRuntimeErrorObservationMessage } from '../messaging/messages';
+import { getSessionNonce } from './bridge';
 
 const DEDUP_WINDOW_MS = 2000;
 const MAX_DISTINCT_ERRORS = 50;
@@ -61,6 +62,8 @@ function handleUncaughtError(event: ErrorEvent): void {
     return;
   }
 
+  const nonce = getSessionNonce();
+
   window.postMessage(
     createRuntimeErrorObservationMessage({
       observationId: crypto.randomUUID(),
@@ -71,6 +74,7 @@ function handleUncaughtError(event: ErrorEvent): void {
       colno,
       timestamp: Date.now(),
       runId: null,
+      ...(nonce !== null && { nonce }),
     }),
     '*'
   );
@@ -98,6 +102,8 @@ function handleUnhandledRejection(event: PromiseRejectionEvent): void {
     return;
   }
 
+  const nonce = getSessionNonce();
+
   window.postMessage(
     createRuntimeErrorObservationMessage({
       observationId: crypto.randomUUID(),
@@ -108,6 +114,7 @@ function handleUnhandledRejection(event: PromiseRejectionEvent): void {
       colno,
       timestamp: Date.now(),
       runId: null,
+      ...(nonce !== null && { nonce }),
     }),
     '*'
   );

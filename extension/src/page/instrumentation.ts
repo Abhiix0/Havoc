@@ -22,6 +22,7 @@ import {
   type FetchFailureChaosParams,
 } from '../messaging/messages';
 import { sanitizeUrl } from '../shared/sanitize-url';
+import { getSessionNonce } from './bridge';
 
 // ---------------------------------------------------------------------------
 // Saved originals
@@ -52,9 +53,11 @@ function generateId(): string {
 }
 
 function emitObservation(obs: ObservationPayload): void {
+  const nonce = getSessionNonce();
   const sanitized: ObservationPayload = {
     ...obs,
     url: sanitizeUrl(obs.url),
+    ...(nonce !== null && { nonce }),
   };
   window.postMessage(createObservationMessage(sanitized), '*');
 }
@@ -67,6 +70,7 @@ function emitObservation(obs: ObservationPayload): void {
  * HavocEvent, not by a different message envelope.
  */
 function emitChaosInjected(injectionId: string, runId: string, detail: string): void {
+  const nonce = getSessionNonce();
   window.postMessage(
     createBridgeMessage('REQUEST_OBSERVATION', {
       observationId: injectionId,
@@ -80,6 +84,7 @@ function emitChaosInjected(injectionId: string, runId: string, detail: string): 
       injectionId,
       runId,
       chaosDetail: detail,       // extra metadata for the CHAOS_INJECTED event
+      ...(nonce !== null && { nonce }),
     }),
     '*'
   );

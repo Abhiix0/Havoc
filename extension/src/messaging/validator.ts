@@ -68,6 +68,7 @@ export function isObservationPayload(data: unknown): data is ObservationPayload 
   if (typeof p.duration !== 'number' || !isFinite(p.duration) || p.duration < 0) return false;
   if ('errorMessage' in p && typeof p.errorMessage !== 'string') return false;
   if ('injectionId' in p && typeof p.injectionId !== 'string') return false;
+  if ('nonce' in p && p.nonce !== undefined && typeof p.nonce !== 'string') return false;
   return true;
 }
 
@@ -205,6 +206,7 @@ export function isRuntimeErrorPayload(
   if (typeof p.colno !== 'number' || !isFinite(p.colno)) return false;
   if (typeof p.timestamp !== 'number' || !isFinite(p.timestamp)) return false;
   if (p.runId !== null && typeof p.runId !== 'string') return false;
+  if ('nonce' in p && p.nonce !== undefined && typeof p.nonce !== 'string') return false;
   return true;
 }
 
