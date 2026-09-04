@@ -26,8 +26,14 @@ import { sanitizeUrl } from '../shared/sanitize-url';
 // ---------------------------------------------------------------------------
 // Saved originals
 // ---------------------------------------------------------------------------
-const _originalFetch: typeof window.fetch = window.fetch.bind(window);
-const _OriginalXHR: typeof XMLHttpRequest = window.XMLHttpRequest;
+let _originalFetch: typeof window.fetch =
+  typeof window !== 'undefined' && typeof window.fetch === 'function'
+    ? window.fetch.bind(window)
+    : ((() => {}) as unknown as typeof window.fetch);
+let _OriginalXHR: typeof XMLHttpRequest =
+  typeof window !== 'undefined'
+    ? window.XMLHttpRequest
+    : (class {} as unknown as typeof XMLHttpRequest);
 
 let _fetchWrapped = false;
 let _xhrWrapped = false;
@@ -131,6 +137,9 @@ async function applyFailureChaos(
 export function wrapFetch(): void {
   if (_fetchWrapped) return;
   _fetchWrapped = true;
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+    _originalFetch = window.fetch.bind(window);
+  }
 
   window.fetch = async function havocFetch(
     input: RequestInfo | URL,
@@ -409,18 +418,22 @@ export function getActiveChaos(): ChaosParams | null {
 }
 
 // ---------------------------------------------------------------------------
-// XMLHttpRequest wrapper (unchanged from Phase 2 — chaos only targets fetch in V1)
+// XMLHttpRequest wrapper (fetch_latency and fetch_failure chaos parity)
 // ---------------------------------------------------------------------------
 
 export function wrapXHR(): void {
   if (_xhrWrapped) return;
   _xhrWrapped = true;
+  if (typeof window !== 'undefined' && window.XMLHttpRequest) {
+    _OriginalXHR = window.XMLHttpRequest;
+  }
 
   class HavocXMLHttpRequest extends _OriginalXHR {
     private _havocObservationId: string = generateId();
     private _havocStartTime: number = 0;
     private _havocUrl: string = '';
     private _havocMethod: string = 'GET';
+    private _havocInjectionId?: string;
 
     override open(
       method: string,
@@ -437,6 +450,8 @@ export function wrapXHR(): void {
 
     override send(body?: Document | XMLHttpRequestBodyInit | null): void {
       this._havocStartTime = performance.now();
+      const cfg = _chaosConfig;
+      this._havocInjectionId = cfg?.injectionId;
 
       this.addEventListener('load', () => {
         const duration = performance.now() - this._havocStartTime;
@@ -450,6 +465,7 @@ export function wrapXHR(): void {
           status: this.status,
           startTime: this._havocStartTime,
           duration,
+          ...(this._havocInjectionId !== undefined && { injectionId: this._havocInjectionId }),
         });
       });
 
@@ -465,6 +481,7 @@ export function wrapXHR(): void {
           startTime: this._havocStartTime,
           duration,
           errorMessage: 'XHR network error',
+          ...(this._havocInjectionId !== undefined && { injectionId: this._havocInjectionId }),
         });
       });
 
@@ -480,8 +497,63 @@ export function wrapXHR(): void {
           startTime: this._havocStartTime,
           duration,
           errorMessage: `XHR timed out after ${this.timeout}ms`,
+          ...(this._havocInjectionId !== undefined && { injectionId: this._havocInjectionId }),
         });
       });
+
+      if (cfg?.kind === 'fetch_latency') {
+        setTimeout(() => {
+          super.send(body);
+        }, cfg.delayMs);
+        return;
+      }
+
+      if (cfg?.kind === 'fetch_failure') {
+        switch (cfg.mode) {
+          case 'transport_error': {
+            setTimeout(() => {
+              try {
+                Object.defineProperty(this, 'readyState', { value: 4, configurable: true, writable: true });
+                Object.defineProperty(this, 'status', { value: 0, configurable: true, writable: true });
+              } catch {
+                // Ignore defineProperty errors
+              }
+              const Evt = typeof ProgressEvent !== 'undefined' ? ProgressEvent : Event;
+              this.dispatchEvent(new Event('readystatechange'));
+              this.dispatchEvent(new Evt('error'));
+              this.dispatchEvent(new Evt('loadend'));
+            }, 0);
+            return;
+          }
+
+          case 'synthetic_http_error': {
+            const status = cfg.syntheticStatus ?? 503;
+            const statusText = `HAVOC synthetic ${status}`;
+            setTimeout(() => {
+              try {
+                Object.defineProperty(this, 'readyState', { value: 4, configurable: true, writable: true });
+                Object.defineProperty(this, 'status', { value: status, configurable: true, writable: true });
+                Object.defineProperty(this, 'statusText', { value: statusText, configurable: true, writable: true });
+                Object.defineProperty(this, 'response', { value: '', configurable: true, writable: true });
+                Object.defineProperty(this, 'responseText', { value: '', configurable: true, writable: true });
+              } catch {
+                // Ignore defineProperty errors
+              }
+              const Evt = typeof ProgressEvent !== 'undefined' ? ProgressEvent : Event;
+              this.dispatchEvent(new Event('readystatechange'));
+              this.dispatchEvent(new Evt('load'));
+              this.dispatchEvent(new Evt('loadend'));
+            }, 0);
+            return;
+          }
+
+          case 'synthetic_timeout': {
+            this.timeout = cfg.timeoutMs ?? 30_000;
+            super.send(body);
+            return;
+          }
+        }
+      }
 
       super.send(body);
     }
