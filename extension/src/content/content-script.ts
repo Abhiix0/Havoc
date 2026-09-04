@@ -335,19 +335,21 @@ function startObserver(): void {
   console.log('[HAVOC][content] DOM observer active');
 }
 
-window.addEventListener('resize', checkLayoutOverflow);
+if (!_isAlreadyLoaded) {
+  window.addEventListener('resize', checkLayoutOverflow);
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startObserver, { once: true });
-} else {
-  startObserver();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startObserver, { once: true });
+  } else {
+    startObserver();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Inject the page-world bridge + instrumentation bundle.
+  // ---------------------------------------------------------------------------
+  const script = document.createElement('script');
+  script.src = chrome.runtime.getURL('src/page/bridge.js');
+  script.type = 'module';
+  (document.head ?? document.documentElement).appendChild(script);
+  script.addEventListener('load', () => script.remove(), { once: true });
 }
-
-// ---------------------------------------------------------------------------
-// Inject the page-world bridge + instrumentation bundle.
-// ---------------------------------------------------------------------------
-const script = document.createElement('script');
-script.src = chrome.runtime.getURL('src/page/bridge.js');
-script.type = 'module';
-(document.head ?? document.documentElement).appendChild(script);
-script.addEventListener('load', () => script.remove(), { once: true });

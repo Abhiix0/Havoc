@@ -55,25 +55,27 @@ export async function verifyTarget(target: Target): Promise<TargetVerificationRe
 
   // Verify the tab's current URL is still on the same origin as when the
   // run was created. Navigation to a different origin is a scope violation.
-  const currentUrl = tab.url ?? '';
-  let currentOrigin: string;
+  const currentUrl = tab.url || tab.pendingUrl;
+  if (currentUrl) {
+    let currentOrigin: string;
 
-  try {
-    currentOrigin = new URL(currentUrl).origin;
-  } catch {
-    return {
-      ok: false,
-      reason: 'ORIGIN_MISMATCH',
-      detail: `Tab ${target.tabId} has an unparseable URL: "${currentUrl}"`,
-    };
-  }
+    try {
+      currentOrigin = new URL(currentUrl).origin;
+    } catch {
+      return {
+        ok: false,
+        reason: 'ORIGIN_MISMATCH',
+        detail: `Tab ${target.tabId} has an unparseable URL: "${currentUrl}"`,
+      };
+    }
 
-  if (currentOrigin !== target.origin) {
-    return {
-      ok: false,
-      reason: 'ORIGIN_MISMATCH',
-      detail: `Tab ${target.tabId} navigated from "${target.origin}" to "${currentOrigin}"`,
-    };
+    if (currentOrigin !== target.origin) {
+      return {
+        ok: false,
+        reason: 'ORIGIN_MISMATCH',
+        detail: `Tab ${target.tabId} navigated from "${target.origin}" to "${currentOrigin}"`,
+      };
+    }
   }
 
   return { ok: true };

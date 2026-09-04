@@ -21,6 +21,9 @@ describe('Chaos Injector', () => {
       tabs: {
         sendMessage: vi.fn().mockResolvedValue(undefined),
       },
+      scripting: {
+        executeScript: vi.fn().mockResolvedValue(undefined),
+      },
     });
   });
 

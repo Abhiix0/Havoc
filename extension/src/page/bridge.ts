@@ -35,7 +35,18 @@ export function getSessionNonce(): string | null {
   return _sessionNonce;
 }
 
+declare global {
+  interface Window {
+    __havocBridgeLoaded?: boolean;
+  }
+}
+
+const _isBridgeAlreadyLoaded = typeof window !== 'undefined' && window.__havocBridgeLoaded === true;
 if (typeof window !== 'undefined') {
+  window.__havocBridgeLoaded = true;
+}
+
+if (!_isBridgeAlreadyLoaded && typeof window !== 'undefined') {
   window.addEventListener('message', (event: MessageEvent) => {
     if (event.source !== window) return;
 

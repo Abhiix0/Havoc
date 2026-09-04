@@ -42,6 +42,19 @@ const CONTENT_SCRIPT_ABSENT_PATTERN = /receiving end does not exist/i;
 // Public API
 // ---------------------------------------------------------------------------
 
+export async function ensureContentScriptInjected(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['src/content/content-script.js'],
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[HAVOC][chaos] ensureContentScriptInjected failed for tab ${tabId}:`, msg);
+    throw new Error('HAVOC cannot run on this type of page');
+  }
+}
+
 export interface InjectionHandle {
   injectionId: string;
   chaosEvent: HavocEvent;
@@ -123,6 +136,9 @@ export async function injectChaos(
   registry: ResourceRegistry,
   nextSequence: (runId: string) => number
 ): Promise<InjectionHandle> {
+  // Ensure content script is injected in the target tab
+  await ensureContentScriptInjected(target.tabId);
+
   // Send the injection command to the content script in the target tab.
   // The content script will forward it to the page world via window.postMessage.
   try {

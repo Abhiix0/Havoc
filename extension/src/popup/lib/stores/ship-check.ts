@@ -63,7 +63,10 @@ export async function syncShipCheckState(): Promise<void> {
 
 export async function resolveActiveTabTarget(): Promise<Target | undefined> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || tab.id === undefined) {
+      [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    }
     if (tab && tab.id !== undefined && tab.url) {
       let origin = '';
       try {

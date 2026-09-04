@@ -82,7 +82,10 @@ export const canStart = derived(
 // ---------------------------------------------------------------------------
 export async function resolveActiveTab(): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || tab.id === undefined) {
+      [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    }
     if (tab && tab.id !== undefined && tab.url) {
       let origin = '';
       try {

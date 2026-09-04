@@ -199,7 +199,10 @@ function emitEvent(event: HavocEvent): void {
 // Resolve the active tab for CREATE_RUN.
 // ---------------------------------------------------------------------------
 async function resolveActiveTab(): Promise<Target | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || tab.id === undefined) {
+    [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  }
   if (!tab || tab.id === undefined || !tab.url) return null;
   let origin: string;
   try {
@@ -213,18 +216,8 @@ async function resolveActiveTab(): Promise<Target | null> {
 // ---------------------------------------------------------------------------
 // On-demand injection of content script into target tab.
 // ---------------------------------------------------------------------------
-export async function ensureContentScriptInjected(tabId: number): Promise<void> {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['src/content/content-script.js'],
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[HAVOC][SW] ensureContentScriptInjected failed for tab ${tabId}:`, msg);
-    throw new Error('HAVOC cannot run on this type of page');
-  }
-}
+import { ensureContentScriptInjected } from './engine/chaos-injector';
+export { ensureContentScriptInjected };
 
 // ---------------------------------------------------------------------------
 // Message listener — registered synchronously.
