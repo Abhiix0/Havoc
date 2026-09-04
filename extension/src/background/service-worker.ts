@@ -32,7 +32,7 @@ import {
   isCreateShipCheckMessage,
   isGetCurrentShipCheckMessage,
 } from '../messaging/validator';
-import { openDatabase } from '../storage/database';
+import { openDatabase, getDatabaseError } from '../storage/database';
 import { saveEvent, saveSignals, getShipCheck } from '../storage/repository';
 import { rehydrate, rehydratePassiveRun, getCurrentRun } from './state';
 import {
@@ -239,6 +239,17 @@ export function handleIncomingMessage(
   if (isCreateRunMessage(message)) {
     (async () => {
       try {
+        await startupPromise;
+        if (getDatabaseError() !== null) {
+          sendResponse(
+            createCreateRunResponseMessage(
+              undefined,
+              "HAVOC's local storage is unavailable — try reloading the extension"
+            )
+          );
+          return;
+        }
+
         let target: Target | null = message.target ?? null;
         if (target === null) target = await resolveActiveTab();
         if (target === null) {
@@ -291,6 +302,17 @@ export function handleIncomingMessage(
   if (isCreateShipCheckMessage(message)) {
     (async () => {
       try {
+        await startupPromise;
+        if (getDatabaseError() !== null) {
+          sendResponse(
+            createCreateShipCheckResponseMessage(
+              undefined,
+              "HAVOC's local storage is unavailable — try reloading the extension"
+            )
+          );
+          return;
+        }
+
         let target: Target | null = message.target ?? null;
         if (target === null) target = await resolveActiveTab();
         if (target === null) {
@@ -388,7 +410,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
 // ---------------------------------------------------------------------------
 // Async startup.
 // ---------------------------------------------------------------------------
-const startupPromise = Promise.all([
+export const startupPromise = Promise.all([
   rehydrate(),
   rehydratePassiveRun(),
   openDatabase()

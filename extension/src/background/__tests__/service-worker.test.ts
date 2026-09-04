@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { checkpoint, rehydratePassiveRun, getCurrentPassiveRun } from '../state';
 import { handleIncomingMessage, ensureContentScriptInjected } from '../service-worker';
 import { getEventsByRunId, saveShipCheck } from '../../storage/repository';
+import * as database from '../../storage/database';
 import * as shipCheckOrchestrator from '../engine/ship-check-orchestrator';
 import * as runCoordinator from '../engine/run-coordinator';
 import { clearRunBuffer, getRunSnapshot } from '../engine/signal-engine';
@@ -76,6 +77,7 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
   };
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     clearRunBuffer(runId);
     clearRunBuffer('debug-run');
     await checkpoint(null);
@@ -562,6 +564,56 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
         })
       );
       expect(startShipCheckSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Storage failure gating', () => {
+    it('CREATE_RUN with non-null getDatabaseError() responds immediately with storage error and never calls startRun', async () => {
+      vi.spyOn(database, 'getDatabaseError').mockReturnValue(new Error('IndexedDB quota exceeded'));
+      const startRunSpy = vi.spyOn(runCoordinator, 'startRun');
+      const executeScriptSpy = vi.mocked(chrome.scripting.executeScript);
+
+      const message = createCreateRunMessage(definition, target);
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CREATE_RUN_RESPONSE',
+          error: "HAVOC's local storage is unavailable — try reloading the extension",
+        })
+      );
+      expect(startRunSpy).not.toHaveBeenCalled();
+      expect(executeScriptSpy).not.toHaveBeenCalled();
+    });
+
+    it('CREATE_SHIP_CHECK with non-null getDatabaseError() responds immediately with storage error and never calls startShipCheck', async () => {
+      vi.spyOn(database, 'getDatabaseError').mockReturnValue(new Error('Database corrupted'));
+      const startShipCheckSpy = vi.spyOn(shipCheckOrchestrator, 'startShipCheck');
+      const executeScriptSpy = vi.mocked(chrome.scripting.executeScript);
+
+      const message = createCreateShipCheckMessage(target);
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CREATE_SHIP_CHECK_RESPONSE',
+          error: "HAVOC's local storage is unavailable — try reloading the extension",
+        })
+      );
+      expect(startShipCheckSpy).not.toHaveBeenCalled();
+      expect(executeScriptSpy).not.toHaveBeenCalled();
     });
   });
 });

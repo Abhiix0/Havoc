@@ -13,6 +13,11 @@ export const STORES = {
 } as const;
 
 let _cachedDb: IDBDatabase | null = null;
+let _openError: Error | null = null;
+
+export function getDatabaseError(): Error | null {
+  return _openError;
+}
 
 export function openDatabase(): Promise<IDBDatabase> {
   if (_cachedDb !== null) {
@@ -66,6 +71,7 @@ export function openDatabase(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
+      _openError = null;
       _cachedDb = request.result;
       _cachedDb.onversionchange = () => {
         _cachedDb?.close();
@@ -77,7 +83,13 @@ export function openDatabase(): Promise<IDBDatabase> {
       resolve(_cachedDb);
     };
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      const err = request.error instanceof Error
+        ? request.error
+        : new Error(request.error ? String(request.error) : 'Failed to open IndexedDB');
+      _openError = err;
+      reject(err);
+    };
   });
 }
 
