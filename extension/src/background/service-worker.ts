@@ -211,6 +211,22 @@ async function resolveActiveTab(): Promise<Target | null> {
 }
 
 // ---------------------------------------------------------------------------
+// On-demand injection of content script into target tab.
+// ---------------------------------------------------------------------------
+export async function ensureContentScriptInjected(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['src/content/content-script.js'],
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[HAVOC][SW] ensureContentScriptInjected failed for tab ${tabId}:`, msg);
+    throw new Error('HAVOC cannot run on this type of page');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Message listener — registered synchronously.
 // ---------------------------------------------------------------------------
 export function handleIncomingMessage(
@@ -229,6 +245,8 @@ export function handleIncomingMessage(
           sendResponse(createCreateRunResponseMessage(undefined, 'Could not resolve a target tab — open a web page first'));
           return;
         }
+
+        await ensureContentScriptInjected(target.tabId);
 
         const runPromise = startRun(message.definition, target);
         await Promise.resolve();
@@ -284,6 +302,8 @@ export function handleIncomingMessage(
           );
           return;
         }
+
+        await ensureContentScriptInjected(target.tabId);
 
         const runPromise = startShipCheck(target);
         sendResponse(createCreateShipCheckResponseMessage(undefined));

@@ -1,14 +1,17 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { checkpoint, rehydratePassiveRun, getCurrentPassiveRun } from '../state';
-import { handleIncomingMessage } from '../service-worker';
+import { handleIncomingMessage, ensureContentScriptInjected } from '../service-worker';
 import { getEventsByRunId, saveShipCheck } from '../../storage/repository';
 import * as shipCheckOrchestrator from '../engine/ship-check-orchestrator';
+import * as runCoordinator from '../engine/run-coordinator';
 import { clearRunBuffer, getRunSnapshot } from '../engine/signal-engine';
 import {
   createBridgeMessage,
   createDomObservationMessage,
   createGetCurrentShipCheckMessage,
+  createCreateRunMessage,
+  createCreateShipCheckMessage,
 } from '../../messaging/messages';
 import type { ExperimentRun } from '../../domain/run';
 import type { PassiveCheckRun } from '../../domain/passive-check';
@@ -30,6 +33,9 @@ vi.stubGlobal('chrome', {
   tabs: {
     query: vi.fn().mockResolvedValue([]),
     sendMessage: vi.fn().mockResolvedValue({}),
+  },
+  scripting: {
+    executeScript: vi.fn().mockResolvedValue([]),
   },
   storage: {
     session: {
@@ -465,6 +471,97 @@ describe('Service Worker Observation Ingestion & Tab Gating', () => {
           shipCheck: expect.objectContaining({ shipCheckId: 'sc-sw-active-1' }),
         })
       );
+    });
+  });
+
+  describe('On-demand content script injection', () => {
+    it('ensureContentScriptInjected calls chrome.scripting.executeScript with correct bundle path', async () => {
+      vi.mocked(chrome.scripting.executeScript).mockResolvedValueOnce(undefined as unknown as void);
+
+      await ensureContentScriptInjected(42);
+
+      expect(chrome.scripting.executeScript).toHaveBeenCalledWith({
+        target: { tabId: 42 },
+        files: ['src/content/content-script.js'],
+      });
+    });
+
+    it('ensureContentScriptInjected throws descriptive error when injection fails on restricted pages', async () => {
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(
+        new Error('Cannot access a chrome:// URL')
+      );
+
+      await expect(ensureContentScriptInjected(42)).rejects.toThrow(
+        'HAVOC cannot run on this type of page'
+      );
+    });
+
+    it('CREATE_RUN executes on-demand injection before starting run', async () => {
+      vi.mocked(chrome.scripting.executeScript).mockResolvedValueOnce(undefined as unknown as void);
+      vi.spyOn(runCoordinator, 'startRun').mockResolvedValueOnce(activeRun);
+
+      const message = createCreateRunMessage(definition, target);
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.scripting.executeScript).toHaveBeenCalledWith({
+        target: { tabId: target.tabId },
+        files: ['src/content/content-script.js'],
+      });
+      expect(runCoordinator.startRun).toHaveBeenCalledWith(definition, target);
+    });
+
+    it('CREATE_RUN returns error response if on-demand injection fails on restricted page', async () => {
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(
+        new Error('Cannot access chrome://extensions')
+      );
+      const startRunSpy = vi.spyOn(runCoordinator, 'startRun');
+
+      const message = createCreateRunMessage(definition, target);
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CREATE_RUN_RESPONSE',
+          error: 'HAVOC cannot run on this type of page',
+        })
+      );
+      expect(startRunSpy).not.toHaveBeenCalled();
+    });
+
+    it('CREATE_SHIP_CHECK returns error response if on-demand injection fails on restricted page', async () => {
+      vi.mocked(chrome.scripting.executeScript).mockRejectedValueOnce(
+        new Error('Cannot access Chrome Web Store')
+      );
+      const startShipCheckSpy = vi.spyOn(shipCheckOrchestrator, 'startShipCheck');
+
+      const message = createCreateShipCheckMessage(target);
+      const sender: chrome.runtime.MessageSender = {};
+      const sendResponse = vi.fn();
+
+      const handled = handleIncomingMessage(message, sender, sendResponse);
+      expect(handled).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CREATE_SHIP_CHECK_RESPONSE',
+          error: 'HAVOC cannot run on this type of page',
+        })
+      );
+      expect(startShipCheckSpy).not.toHaveBeenCalled();
     });
   });
 });

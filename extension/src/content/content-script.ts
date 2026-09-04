@@ -34,7 +34,20 @@ import {
 import { createBridgeMessage, createDomObservationMessage } from '../messaging/messages';
 import type { DomMutationKind } from '../messaging/messages';
 
-console.log('[HAVOC][content] content script loaded on', location.href);
+declare global {
+  interface Window {
+    __havocContentScriptLoaded?: boolean;
+  }
+}
+
+const _isAlreadyLoaded = typeof window !== 'undefined' && window.__havocContentScriptLoaded === true;
+if (typeof window !== 'undefined') {
+  window.__havocContentScriptLoaded = true;
+}
+
+if (!_isAlreadyLoaded) {
+  console.log('[HAVOC][content] content script loaded on', typeof location !== 'undefined' ? location.href : '');
+}
 
 // ---------------------------------------------------------------------------
 // Track active runId — updated when the SW broadcasts RUN_STATE_UPDATE.
@@ -45,28 +58,30 @@ let _activeRunId: string | null = null;
 // ---------------------------------------------------------------------------
 // SW → content: track run state + relay chaos commands to page world.
 // ---------------------------------------------------------------------------
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // Track run state for DOM observation attribution.
-  if (isRunStateUpdateMessage(message)) {
-    _activeRunId = message.run?.runId ?? null;
-    return false; // no response needed
-  }
+if (!_isAlreadyLoaded && typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // Track run state for DOM observation attribution.
+    if (isRunStateUpdateMessage(message)) {
+      _activeRunId = message.run?.runId ?? null;
+      return false; // no response needed
+    }
 
-  if (!isBridgeMessage(message)) return false;
+    if (!isBridgeMessage(message)) return false;
 
-  if (
-    message.type === 'INJECT_CHAOS' ||
-    message.type === 'REMOVE_CHAOS' ||
-    message.type === 'ENABLE_RUNTIME_ERROR_CAPTURE' ||
-    message.type === 'DISABLE_RUNTIME_ERROR_CAPTURE'
-  ) {
-    window.postMessage(message, '*');
-    sendResponse({ ok: true });
-    return true;
-  }
+    if (
+      message.type === 'INJECT_CHAOS' ||
+      message.type === 'REMOVE_CHAOS' ||
+      message.type === 'ENABLE_RUNTIME_ERROR_CAPTURE' ||
+      message.type === 'DISABLE_RUNTIME_ERROR_CAPTURE'
+    ) {
+      window.postMessage(message, '*');
+      sendResponse({ ok: true });
+      return true;
+    }
 
-  return false;
-});
+    return false;
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Page → SW relay: BRIDGE_HELLO, REQUEST_OBSERVATION.
@@ -81,67 +96,69 @@ export function resetSessionNonceForTesting(): void {
   _sessionNonce = null;
 }
 
-window.addEventListener('message', (event: MessageEvent) => {
-  if (event.source !== window) return;
+if (!_isAlreadyLoaded && typeof window !== 'undefined') {
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (event.source !== window) return;
 
-  if (isObservationMessage(event.data)) {
-    const payloadNonce = event.data.payload.nonce;
-    if (!_sessionNonce || payloadNonce !== _sessionNonce) {
-      console.warn('[HAVOC][content] dropping unverified REQUEST_OBSERVATION message: invalid or missing session nonce');
+    if (isObservationMessage(event.data)) {
+      const payloadNonce = event.data.payload.nonce;
+      if (!_sessionNonce || payloadNonce !== _sessionNonce) {
+        console.warn('[HAVOC][content] dropping unverified REQUEST_OBSERVATION message: invalid or missing session nonce');
+        return;
+      }
+
+      chrome.runtime.sendMessage(event.data, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[HAVOC][content] SW unreachable forwarding observation', chrome.runtime.lastError.message);
+        }
+        void response;
+      });
       return;
     }
+
+    if (isRuntimeErrorObservationMessage(event.data)) {
+      const payloadNonce = event.data.payload.nonce;
+      if (!_sessionNonce || payloadNonce !== _sessionNonce) {
+        console.warn('[HAVOC][content] dropping unverified RUNTIME_ERROR_OBSERVATION message: invalid or missing session nonce');
+        return;
+      }
+
+      chrome.runtime.sendMessage(event.data, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[HAVOC][content] SW unreachable forwarding runtime error', chrome.runtime.lastError.message);
+        }
+        void response;
+      });
+      return;
+    }
+
+    if (!isBridgeMessage(event.data)) return;
+    if (event.data.type !== 'BRIDGE_HELLO') return;
+
+    _sessionNonce = crypto.randomUUID();
+    console.log('[HAVOC][content] forwarding BRIDGE_HELLO to service worker');
 
     chrome.runtime.sendMessage(event.data, (response) => {
       if (chrome.runtime.lastError) {
-        console.warn('[HAVOC][content] SW unreachable forwarding observation', chrome.runtime.lastError.message);
+        console.error('[HAVOC][content] service worker unreachable', chrome.runtime.lastError.message);
+        window.postMessage(
+          createBridgeMessage('BRIDGE_ERROR', { reason: chrome.runtime.lastError.message }),
+          '*'
+        );
+        return;
       }
-      void response;
-    });
-    return;
-  }
-
-  if (isRuntimeErrorObservationMessage(event.data)) {
-    const payloadNonce = event.data.payload.nonce;
-    if (!_sessionNonce || payloadNonce !== _sessionNonce) {
-      console.warn('[HAVOC][content] dropping unverified RUNTIME_ERROR_OBSERVATION message: invalid or missing session nonce');
-      return;
-    }
-
-    chrome.runtime.sendMessage(event.data, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[HAVOC][content] SW unreachable forwarding runtime error', chrome.runtime.lastError.message);
+      if (isBridgeMessage(response)) {
+        const readyPayload = response.type === 'BRIDGE_READY'
+          ? { ...(response.payload ?? {}), nonce: _sessionNonce }
+          : response.payload;
+        window.postMessage(
+          createBridgeMessage(response.type, readyPayload),
+          '*'
+        );
       }
-      void response;
     });
-    return;
-  }
-
-  if (!isBridgeMessage(event.data)) return;
-  if (event.data.type !== 'BRIDGE_HELLO') return;
-
-  _sessionNonce = crypto.randomUUID();
-  console.log('[HAVOC][content] forwarding BRIDGE_HELLO to service worker');
-
-  chrome.runtime.sendMessage(event.data, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error('[HAVOC][content] service worker unreachable', chrome.runtime.lastError.message);
-      window.postMessage(
-        createBridgeMessage('BRIDGE_ERROR', { reason: chrome.runtime.lastError.message }),
-        '*'
-      );
-      return;
-    }
-    if (isBridgeMessage(response)) {
-      const readyPayload = response.type === 'BRIDGE_READY'
-        ? { ...(response.payload ?? {}), nonce: _sessionNonce }
-        : response.payload;
-      window.postMessage(
-        createBridgeMessage(response.type, readyPayload),
-        '*'
-      );
-    }
   });
-});
+}
 
 // ---------------------------------------------------------------------------
 // DOM observation via MutationObserver

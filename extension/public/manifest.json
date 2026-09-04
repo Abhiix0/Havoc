@@ -10,20 +10,11 @@
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["src/content/content-script.ts"],
-      "all_frames": false,
-      "run_at": "document_start"
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": ["src/page/bridge.ts"],
       "matches": ["http://*/*", "https://*/*"]
     }
   ],
-  "permissions": ["storage", "scripting", "activeTab", "alarms"],
-  "host_permissions": ["http://*/*", "https://*/*"]
+  "permissions": ["storage", "scripting", "activeTab", "alarms"]
 }

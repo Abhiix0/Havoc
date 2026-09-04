@@ -66,15 +66,18 @@ export default defineConfig({
     rollupOptions: {
       input: {
         'src/page/bridge': 'src/page/bridge.ts',
+        'src/content/content-script': 'src/content/content-script.ts',
       },
       // preserveEntrySignatures lives on RollupOptions, not on output
       preserveEntrySignatures: 'strict',
       output: {
         // Ensure the bridge entry chunk lands at src/page/bridge.js (no hash,
         // no assets/ prefix) so it matches the web_accessible_resources path
-        // and the chrome.runtime.getURL call in the content script.
+        // and the chrome.runtime.getURL call in the content script, and
+        // content-script lands at src/content/content-script.js for on-demand injection.
         entryFileNames: (chunk) => {
           if (chunk.name === 'src/page/bridge') return 'src/page/bridge.js';
+          if (chunk.name === 'src/content/content-script') return 'src/content/content-script.js';
           return 'assets/[name]-[hash].js';
         },
       },
