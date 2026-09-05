@@ -28,10 +28,11 @@
 import {
   isBridgeMessage,
   isObservationMessage,
+  isPingMessage,
   isRunStateUpdateMessage,
   isRuntimeErrorObservationMessage,
 } from '../messaging/validator';
-import { createBridgeMessage, createDomObservationMessage } from '../messaging/messages';
+import { createBridgeMessage, createDomObservationMessage, createPongMessage } from '../messaging/messages';
 import type { DomMutationKind } from '../messaging/messages';
 
 declare global {
@@ -60,6 +61,12 @@ let _activeRunId: string | null = null;
 // ---------------------------------------------------------------------------
 if (!_isAlreadyLoaded && typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // Liveness probe from ensureContentScriptInjected() in SW
+    if (isPingMessage(message)) {
+      sendResponse(createPongMessage());
+      return false; // synchronous response, no async channel needed
+    }
+
     // Track run state for DOM observation attribution.
     if (isRunStateUpdateMessage(message)) {
       _activeRunId = message.run?.runId ?? null;

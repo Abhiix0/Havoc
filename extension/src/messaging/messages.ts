@@ -32,7 +32,9 @@ export type BridgeMessageType =
   | 'DOM_OBSERVATION'
   | 'RUNTIME_ERROR_OBSERVATION'
   | 'ENABLE_RUNTIME_ERROR_CAPTURE'
-  | 'DISABLE_RUNTIME_ERROR_CAPTURE';
+  | 'DISABLE_RUNTIME_ERROR_CAPTURE'
+  | 'PING'
+  | 'PONG';
 
 /** Messages that travel over the popup ↔ service-worker channel (chrome.runtime). */
 export type RuntimeMessageType =
@@ -271,6 +273,30 @@ export function createEnableRuntimeErrorCaptureMessage(): BridgeMessage {
 
 export function createDisableRuntimeErrorCaptureMessage(): BridgeMessage {
   return createBridgeMessage('DISABLE_RUNTIME_ERROR_CAPTURE');
+}
+
+export interface PingMessage extends BridgeMessage {
+  type: 'PING';
+}
+
+export interface PongMessage extends BridgeMessage {
+  type: 'PONG';
+}
+
+export function createPingMessage(): PingMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'PING',
+  };
+}
+
+export function createPongMessage(): PongMessage {
+  return {
+    namespace: HAVOC_NAMESPACE,
+    version: BRIDGE_PROTOCOL_VERSION,
+    type: 'PONG',
+  };
 }
 
 // ---------------------------------------------------------------------------

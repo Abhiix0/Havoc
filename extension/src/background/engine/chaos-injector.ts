@@ -20,7 +20,12 @@
 import type { Target } from '../../domain/target';
 import type { ExperimentDefinition } from '../../domain/experiment';
 import type { HavocEvent } from '../../domain/event';
-import { createInjectChaosMessage, createRemoveChaosMessage, type ChaosParams } from '../../messaging/messages';
+import {
+  createInjectChaosMessage,
+  createRemoveChaosMessage,
+  createPingMessage,
+  type ChaosParams,
+} from '../../messaging/messages';
 import type { ResourceRegistry } from './resource-registry';
 
 /**
@@ -37,12 +42,38 @@ export class ContentScriptUnavailableError extends Error {
 }
 
 const CONTENT_SCRIPT_ABSENT_PATTERN = /receiving end does not exist/i;
+const PING_TIMEOUT_MS = 300;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
+async function pingContentScript(tabId: number): Promise<boolean> {
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pingPromise = chrome.tabs.sendMessage(tabId, createPingMessage()).then(
+      (response) => {
+        if (timer !== undefined) clearTimeout(timer);
+        return response !== undefined && response !== null;
+      },
+      () => {
+        if (timer !== undefined) clearTimeout(timer);
+        return false;
+      }
+    );
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS);
+    });
+    return await Promise.race([pingPromise, timeoutPromise]);
+  } catch {
+    return false; // "receiving end does not exist" or any other failure -> not present
+  }
+}
+
 export async function ensureContentScriptInjected(tabId: number): Promise<void> {
+  const alreadyPresent = await pingContentScript(tabId);
+  if (alreadyPresent) return;
+
   try {
     await chrome.scripting.executeScript({
       target: { tabId },

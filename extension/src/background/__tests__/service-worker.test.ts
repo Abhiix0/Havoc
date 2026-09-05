@@ -33,7 +33,7 @@ vi.stubGlobal('chrome', {
   },
   tabs: {
     query: vi.fn().mockResolvedValue([]),
-    sendMessage: vi.fn().mockResolvedValue({}),
+    sendMessage: vi.fn().mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.')),
   },
   scripting: {
     executeScript: vi.fn().mockResolvedValue([]),

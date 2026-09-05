@@ -17,6 +17,8 @@ import {
   type DomObservationMessage,
   type DomObservationPayload,
   type DomMutationKind,
+  type PingMessage,
+  type PongMessage,
 } from './messages';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +36,8 @@ const VALID_BRIDGE_TYPES: ReadonlySet<BridgeMessageType> = new Set([
   'RUNTIME_ERROR_OBSERVATION',
   'ENABLE_RUNTIME_ERROR_CAPTURE',
   'DISABLE_RUNTIME_ERROR_CAPTURE',
+  'PING',
+  'PONG',
 ]);
 
 export function isBridgeMessage(data: unknown): data is BridgeMessage {
@@ -43,6 +47,16 @@ export function isBridgeMessage(data: unknown): data is BridgeMessage {
   if (msg.version !== BRIDGE_PROTOCOL_VERSION) return false;
   if (typeof msg.type !== 'string' || !VALID_BRIDGE_TYPES.has(msg.type as BridgeMessageType)) return false;
   return true;
+}
+
+export function isPingMessage(data: unknown): data is PingMessage {
+  if (!isBridgeMessage(data)) return false;
+  return data.type === 'PING';
+}
+
+export function isPongMessage(data: unknown): data is PongMessage {
+  if (!isBridgeMessage(data)) return false;
+  return data.type === 'PONG';
 }
 
 // ---------------------------------------------------------------------------
