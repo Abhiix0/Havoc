@@ -4,20 +4,12 @@
   import { cubicOut } from 'svelte/easing';
   import { currentShipCheck } from '../stores/ship-check';
   import type { ShipCheckStepKind, ShipCheckStepStatus } from '../../../domain/ship-check';
+  import { STEP_LABELS } from '../utils/step-labels';
   import Robot from '../components/Robot.svelte';
 
   const dispatch = createEventDispatcher<{
     navigate: { screen: 'results'; shipCheckId: string };
   }>();
-
-  const STEP_LABELS: Record<ShipCheckStepKind, string> = {
-    runtime_errors: 'Checking for runtime errors',
-    fetch_latency: 'Testing slow API responses',
-    fetch_failure: 'Testing API failures',
-    input_stress: 'Testing form inputs',
-    viewport_stress: 'Testing narrow screens',
-    secret_scan: 'Scanning for exposed secrets',
-  };
 
   const DEFAULT_STEPS: Array<{ kind: ShipCheckStepKind; status: ShipCheckStepStatus }> = [
     { kind: 'runtime_errors', status: 'PENDING' },

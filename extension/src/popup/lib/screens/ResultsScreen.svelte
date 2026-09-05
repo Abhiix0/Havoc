@@ -7,6 +7,7 @@
   import type { Remediation } from '../../../domain/remediation';
   import { loadShipCheck } from '../stores/ship-check';
   import { readinessToTone } from '../utils/readiness-tone';
+  import { friendlyStepName } from '../utils/step-labels';
   import FindingCard from '../components/FindingCard.svelte';
   import Button from '../components/Button.svelte';
 
@@ -49,6 +50,10 @@
   // Summary counts
   $: criticalCount = findings.filter((f) => f.severity === 'HIGH').length;
   $: warningCount = findings.filter((f) => f.severity === 'MEDIUM' || f.severity === 'LOW').length;
+
+  // Errored steps derivation
+  $: erroredSteps = (shipCheck?.steps ?? []).filter((s) => s.status === 'ERRORED');
+  $: hasErroredSteps = erroredSteps.length > 0;
 
   // Passed count = steps that reached DONE with 0 findings
   $: passedCount = (shipCheck?.steps ?? []).filter((step) => {
@@ -131,13 +136,29 @@
         <span class="finding-count">{findings.length} DETECTED</span>
       </div>
 
-      {#if findings.length === 0}
+      {#if findings.length === 0 && !hasErroredSteps}
         <div class="clean-state">
           <span class="clean-icon">✓</span>
           <span class="clean-title">No issues detected</span>
           <p class="clean-desc">
-            Your application gracefully handled latency, failures, edge inputs, and layout constraints.
+            HAVOC completed all {(shipCheck?.steps ?? []).length} checks and found
+            no evidence of a problem.
           </p>
+        </div>
+      {:else if findings.length === 0 && hasErroredSteps}
+        <div class="clean-state incomplete-state">
+          <span class="clean-icon incomplete-icon">!</span>
+          <span class="clean-title">Results are incomplete</span>
+          <p class="clean-desc">
+            {erroredSteps.length} of {(shipCheck?.steps ?? []).length} checks
+            couldn't run — see below. The checks that did complete found no
+            issues, but this is not a full pass.
+          </p>
+          <ul class="errored-step-list">
+            {#each erroredSteps as step}
+              <li>{friendlyStepName(step.kind)}</li>
+            {/each}
+          </ul>
         </div>
       {:else}
         <div class="findings-list">
@@ -381,6 +402,15 @@
     font-weight: 700;
   }
 
+  .incomplete-state {
+    border-color: rgba(245, 196, 81, 0.3);
+    background: rgba(245, 196, 81, 0.04);
+  }
+
+  .incomplete-icon {
+    color: var(--warn-amber, #F5C451);
+  }
+
   .clean-title {
     font-size: var(--text-xs, 11px);
     font-weight: 700;
@@ -392,6 +422,27 @@
     font-size: 10px;
     color: var(--text-muted, #8A8B90);
     line-height: 1.4;
+  }
+
+  .errored-step-list {
+    margin: 6px 0 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .errored-step-list li {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 9.5px;
+    color: var(--warn-amber, #F5C451);
+    background: rgba(245, 196, 81, 0.08);
+    border: 1px solid rgba(245, 196, 81, 0.2);
+    border-radius: var(--radius-sm, 4px);
+    padding: 3px 8px;
+    text-align: left;
   }
 
   .view-details-btn {
