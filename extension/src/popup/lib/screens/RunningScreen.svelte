@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { currentShipCheck } from '../stores/ship-check';
+  import { currentShipCheck, syncShipCheckState } from '../stores/ship-check';
   import type { ShipCheckStepKind, ShipCheckStepStatus } from '../../../domain/ship-check';
   import { STEP_LABELS } from '../utils/step-labels';
+  import { getDeckTagLabel } from '../utils/deck-tag';
   import Robot from '../components/Robot.svelte';
 
   const dispatch = createEventDispatcher<{
@@ -21,9 +22,33 @@
   ];
 
   $: steps = $currentShipCheck?.steps ?? DEFAULT_STEPS;
+  $: deckTagLabel = getDeckTagLabel($currentShipCheck);
+
+  let pollInterval: ReturnType<typeof setInterval> | undefined;
+
+  onMount(() => {
+    pollInterval = setInterval(() => {
+      if ($currentShipCheck && !$currentShipCheck.completedAt) {
+        syncShipCheckState().catch((e) => {
+          console.warn('[HAVOC][running] fallback sync error', e);
+        });
+      }
+    }, 2000);
+  });
+
+  onDestroy(() => {
+    if (pollInterval !== undefined) {
+      clearInterval(pollInterval);
+      pollInterval = undefined;
+    }
+  });
 
   let navigated = false;
   $: if ($currentShipCheck?.completedAt && !navigated && $currentShipCheck.shipCheckId) {
+    if (pollInterval !== undefined) {
+      clearInterval(pollInterval);
+      pollInterval = undefined;
+    }
     navigated = true;
     setTimeout(() => {
       dispatch('navigate', {
@@ -73,7 +98,7 @@
       <span class="brand-title">HAVOC</span>
       <span class="brand-badge">SHIP CHECK</span>
     </div>
-    <div class="deck-tag">RUNNING</div>
+    <div class="deck-tag">{deckTagLabel}</div>
   </header>
 
   <!-- Robot Mascot & Live Indicator -->
