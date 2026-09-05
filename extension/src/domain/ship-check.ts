@@ -23,11 +23,16 @@ export type ReadinessState =
   | 'BLOCKED'
   | 'UNKNOWN';
 
+export type SyncState = 'NOT_SYNCED' | 'SYNCING' | 'SYNCED' | 'SYNC_FAILED';
+
 export interface ShipCheckRun {
   shipCheckId: string;
   target: Target;
   steps: ShipCheckStep[];
   createdAt: number;
-  completedAt?: number;
+  completedAt?: number | undefined;
   readiness: ReadinessState;
+  syncState?: SyncState | undefined;
+  syncedAt?: number | undefined;
+  lastSyncError?: string | undefined;
 }
