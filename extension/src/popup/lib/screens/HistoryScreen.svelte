@@ -11,6 +11,7 @@
   import type { Recovery } from '../../../domain/recovery';
   import type { ShipCheckRun } from '../../../domain/ship-check';
   import { readinessToTone } from '../utils/readiness-tone';
+  import SyncStatusTag from '../components/SyncStatusTag.svelte';
 
   const dispatch = createEventDispatcher<{
     navigate: {
@@ -200,6 +201,9 @@
             </div>
 
             <div class="row-right">
+              {#if item.type === 'ship-check'}
+                <SyncStatusTag syncState={item.shipCheck.syncState} />
+              {/if}
               <span class="run-time">{formatTimeAgo(item.timestamp)}</span>
               <span class="outcome-badge tone-{getBadgeTone(item)}">
                 {getBadgeLabel(item)}

@@ -10,6 +10,7 @@
   import { friendlyStepName } from '../utils/step-labels';
   import FindingCard from '../components/FindingCard.svelte';
   import Button from '../components/Button.svelte';
+  import SyncStatusTag from '../components/SyncStatusTag.svelte';
 
   export let shipCheckId: string | null = null;
 
@@ -80,6 +81,7 @@
     </button>
     <div class="header-titles">
       <span class="results-title">SHIP CHECK VERDICT</span>
+      <SyncStatusTag syncState={shipCheck?.syncState} />
     </div>
   </header>
 
@@ -235,6 +237,12 @@
     outline: 2px solid var(--havoc-red, #E85C4A);
     outline-offset: 2px;
     border-radius: var(--radius-sm, 4px);
+  }
+
+  .header-titles {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
   }
 
   .results-title {
