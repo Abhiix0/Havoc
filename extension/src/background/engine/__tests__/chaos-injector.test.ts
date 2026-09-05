@@ -21,8 +21,8 @@ describe('Chaos Injector', () => {
   beforeEach(() => {
     vi.stubGlobal('chrome', {
       tabs: {
-        sendMessage: vi.fn().mockImplementation(async (_tabId, msg) => {
-          if (msg?.type === 'PING') {
+        sendMessage: vi.fn().mockImplementation(async (_tabId, msg: unknown) => {
+          if (typeof msg === 'object' && msg !== null && 'type' in msg && (msg as { type: unknown }).type === 'PING') {
             return createPongMessage();
           }
           return undefined;
@@ -259,8 +259,10 @@ describe('Chaos Injector', () => {
     });
 
     it('throws a regular Error on other message failures', async () => {
-      vi.mocked(chrome.tabs.sendMessage).mockImplementation(async (_tabId, msg) => {
-        if (msg?.type === 'PING') return createPongMessage();
+      vi.mocked(chrome.tabs.sendMessage).mockImplementation(async (_tabId, msg: unknown) => {
+        if (typeof msg === 'object' && msg !== null && 'type' in msg && (msg as { type: unknown }).type === 'PING') {
+          return createPongMessage();
+        }
         throw new Error('Frame was detached');
       });
 
