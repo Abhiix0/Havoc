@@ -54,24 +54,33 @@ async function pingContentScript(tabId: number): Promise<boolean> {
     const pingPromise = chrome.tabs.sendMessage(tabId, createPingMessage()).then(
       (response) => {
         if (timer !== undefined) clearTimeout(timer);
+        console.log(`[HAVOC][chaos] ping OK for tab ${tabId}`);
         return response !== undefined && response !== null;
       },
-      () => {
+      (err: unknown) => {
         if (timer !== undefined) clearTimeout(timer);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[HAVOC][chaos] ping REJECTED for tab ${tabId}: ${msg} — assuming not present`);
         return false;
       }
     );
     const timeoutPromise = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS);
+      timer = setTimeout(() => {
+        console.warn(`[HAVOC][chaos] ping TIMEOUT (${PING_TIMEOUT_MS}ms) for tab ${tabId} — assuming not present`);
+        resolve(false);
+      }, PING_TIMEOUT_MS);
     });
     return await Promise.race([pingPromise, timeoutPromise]);
-  } catch {
-    return false; // "receiving end does not exist" or any other failure -> not present
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[HAVOC][chaos] ping REJECTED for tab ${tabId}: ${msg} — assuming not present`);
+    return false;
   }
 }
 
 export async function ensureContentScriptInjected(tabId: number): Promise<void> {
   const alreadyPresent = await pingContentScript(tabId);
+  console.log('[HAVOC][chaos] tab', tabId, alreadyPresent ? 'already has content script (ping OK), skipping injection' : 'not present, injecting fresh');
   if (alreadyPresent) return;
 
   try {
@@ -173,6 +182,7 @@ export async function injectChaos(
   // Send the injection command to the content script in the target tab.
   // The content script will forward it to the page world via window.postMessage.
   try {
+    console.log('[HAVOC][chaos] sending INJECT_CHAOS to tab', target.tabId, 'kind:', params.kind);
     await chrome.tabs.sendMessage(target.tabId, createInjectChaosMessage(params));
     console.log(`[HAVOC][chaos] injected ${params.kind} into tab ${target.tabId} (injection: ${params.injectionId})`);
   } catch (err) {
