@@ -13,7 +13,19 @@
     ========================================================================
   -->
   <script>
-    window.__APP_CONFIG__ = %%APP_CONFIG_JSON%%;
+    // Injected dynamically by server.js when served via `npm start`.
+    // If opened directly as a file:// URL, safe fallback prevents a syntax error.
+    try {
+      const rawConfig = '%%APP_CONFIG_JSON%%';
+      if (rawConfig.startsWith('%%')) {
+        console.warn('[HAVOC DEMO] This file must be served via `npm start` (http://localhost:3000), not opened directly.');
+        window.__APP_CONFIG__ = {};
+      } else {
+        window.__APP_CONFIG__ = JSON.parse(rawConfig);
+      }
+    } catch {
+      window.__APP_CONFIG__ = {};
+    }
   </script>
 </head>
 <body>

@@ -22,11 +22,12 @@ describe('HAVOC Demo App Server Smoke Tests', () => {
     await new Promise((resolve) => serverInstance.close(resolve));
   });
 
-  it('serves index.html on root path with 200 OK', async () => {
+  it('serves index.html on root path with 200 OK and substitutes template placeholder', async () => {
     const res = await fetch(`${baseUrl}/`);
     assert.strictEqual(res.status, 200);
     const text = await res.text();
     assert.ok(text.includes('HAVOC Microservice Dashboard'));
+    assert.strictEqual(text.includes('%%APP_CONFIG_JSON%%'), false, 'Placeholder must be substituted');
     assert.ok(text.includes('STRIPE_TEST_SECRET')); // Flaw E fake credential present in default broken mode
     assert.ok(text.includes('sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234'));
   });
@@ -36,6 +37,7 @@ describe('HAVOC Demo App Server Smoke Tests', () => {
     assert.strictEqual(res.status, 200);
     const text = await res.text();
     assert.ok(text.includes('HAVOC Microservice Dashboard'));
+    assert.strictEqual(text.includes('%%APP_CONFIG_JSON%%'), false, 'Placeholder must be substituted in fixed mode');
     assert.ok(text.includes('pub_client_safe_demo_9876'));
     // Crucial: Zero occurrences of fake credential markers anywhere in the fixed variant response body
     assert.strictEqual(text.includes('FAKEDEMOFAKEDEMO'), false, 'Fixed mode must not contain FAKEDEMOFAKEDEMO');
@@ -47,6 +49,7 @@ describe('HAVOC Demo App Server Smoke Tests', () => {
     const res = await fetch(`${baseUrl}/?mode=broken`);
     assert.strictEqual(res.status, 200);
     const text = await res.text();
+    assert.strictEqual(text.includes('%%APP_CONFIG_JSON%%'), false, 'Placeholder must be substituted in broken mode');
     assert.ok(text.includes('sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234'));
     assert.ok(text.includes('AKIAFAKEFAKEFAKE1234'));
   });

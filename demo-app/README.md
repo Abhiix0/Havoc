@@ -1,5 +1,15 @@
 # HAVOC Target Demo Application
 
+> [!IMPORTANT]
+> **Required Usage**:
+> The demo application **must be served via `npm start`** (`node server.js`). Do **not** open `index.html` directly as a `file://` URL in the browser. The server dynamically performs configuration/credential injection and hosts the mock API endpoints required for the Ship Checks.
+>
+> ```bash
+> cd demo-app
+> npm start
+> ```
+> Then open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
 A lightweight, self-contained demonstration web application built specifically to audit, test, and demonstrate **HAVOC's Six Ship Checks**.
 
 The application models a realistic microservice monitoring dashboard with **six isolated, deliberate flaws** (one per Ship Check) in `broken` mode, alongside a clean, robust `fixed` variant.
@@ -8,21 +18,24 @@ The application models a realistic microservice monitoring dashboard with **six 
 
 ## Quick Start
 
-### 1. Run in Broken Mode (Flaws Active)
+### 1. Run the Demo Server (Default / Broken Mode)
 ```bash
 cd demo-app
-npm run demo:broken
+npm start
+# or: npm run demo:broken
 ```
 Open **[http://localhost:3000](http://localhost:3000)** (or `http://localhost:3000/?mode=broken`).
 
 ### 2. Run in Fixed Mode (Flaws Resolved)
 ```bash
+cd demo-app
 npm run demo:fixed
 ```
 Open **[http://localhost:3000/?mode=fixed](http://localhost:3000/?mode=fixed)**.
 
 ### 3. Run Automated Smoke Tests
 ```bash
+cd demo-app
 npm test
 ```
 
