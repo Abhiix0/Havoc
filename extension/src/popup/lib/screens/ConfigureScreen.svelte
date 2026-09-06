@@ -156,7 +156,7 @@
   <form class="config-form" on:submit|preventDefault={handleStart}>
     <!-- Kind-specific Parameters -->
     <div class="param-section" in:fade={{ duration: 150 }}>
-      <span class="section-label">CHAOS PARAMETERS</span>
+      <span class="section-label">TEST PARAMETERS</span>
 
       {#if selectedKind === 'fetch_latency'}
         <div class="field-container">
@@ -279,7 +279,7 @@
       <span class="section-label">TIMING & RECOVERY</span>
 
       <div class="timing-grid">
-        <ParamField label="Hold Duration" description="Active chaos injection window">
+        <ParamField label="Hold Duration" description="Active test disruption window">
           <div class="input-with-unit">
             <input
               type="number"
@@ -318,7 +318,7 @@
         variant="primary"
         disabled={$starting || !$activeTab}
       >
-        {$starting ? 'ARMING CHAOS...' : '⚡ START EXPERIMENT'}
+        {$starting ? 'STARTING TEST...' : '⚡ START EXPERIMENT'}
       </Button>
     </div>
   </form>

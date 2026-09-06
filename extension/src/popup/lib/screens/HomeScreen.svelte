@@ -30,7 +30,6 @@
       <span class="brand-title">HAVOC</span>
       <span class="brand-ver">v1.0</span>
     </div>
-    <div class="deck-tag">LAB-DECK</div>
   </header>
 
   <!-- Robot Mascot & Hero Heading -->
@@ -40,8 +39,8 @@
     </div>
 
     <div class="hero-text">
-      <h1 class="hero-title">READY TO BREAK</h1>
-      <p class="hero-subtext">Controlled chaos. Observable recovery.</p>
+      <h1 class="hero-title">READY FOR A SHIP CHECK</h1>
+      <p class="hero-subtext">Find out what breaks before your users do.</p>
     </div>
   </div>
 
@@ -69,7 +68,7 @@
       class="advanced-link"
       on:click={() => dispatch('navigate', 'select')}
     >
-      Custom Chaos Experiments (Advanced) →
+      Advanced: Manual Experiment Mode →
     </button>
   </div>
 
@@ -128,17 +127,6 @@
     font-weight: 600;
   }
 
-  .deck-tag {
-    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
-    font-size: 10px;
-    color: var(--text-muted, #8A8B90);
-    padding: 2px 6px;
-    background: var(--bg-surface, #16171A);
-    border: 1px solid var(--border, #2A2B30);
-    border-radius: var(--radius-sm, 4px);
-    letter-spacing: 0.5px;
-  }
-
   .hero-section {
     display: flex;
     flex-direction: column;
@@ -156,7 +144,7 @@
     text-align: center;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1, 4px);
   }
 
   .hero-title {
@@ -181,7 +169,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2, 8px);
     margin-top: auto;
   }
 

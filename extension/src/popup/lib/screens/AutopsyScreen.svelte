@@ -76,7 +76,7 @@
   });
 
   function getInjectedSummary(run: ExperimentRun | null): string {
-    if (!run?.definition) return 'Chaos injection complete';
+    if (!run?.definition) return 'Test disruption complete';
     const def = run.definition;
     const p = def.params ?? {};
 
@@ -112,7 +112,7 @@
       }
     } else {
       if (!hasRequestEvents && !hasDomEvents) {
-        return 'No network requests or DOM changes were observed during this window — the target page may not have made any fetch/XHR calls or displayed loading/error states while chaos was active.';
+        return 'No network requests or DOM changes were observed during this window — the target page may not have made any fetch/XHR calls or displayed loading/error states while the check was active.';
       }
     }
 

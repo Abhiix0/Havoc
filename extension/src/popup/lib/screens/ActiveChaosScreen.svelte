@@ -69,7 +69,7 @@
 
   // Summarize what's being affected from definition
   function getAffectedSummary(run: typeof $currentRun): string {
-    if (!run?.definition) return 'Injecting chaos...';
+    if (!run?.definition) return 'Running test...';
     const def = run.definition;
     const p = def.params ?? {};
 
@@ -117,7 +117,7 @@
       </div>
       <div class="empty-text">
         <span class="empty-title">NO ACTIVE RUN</span>
-        <p class="empty-desc">There is currently no active chaos experiment running.</p>
+        <p class="empty-desc">There is currently no active test running.</p>
       </div>
       <div class="empty-action">
         <Button variant="ghost" on:click={() => dispatch('navigate', 'home')}>

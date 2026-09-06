@@ -4,6 +4,15 @@
   export let origin: string = '';
   export let url: string = '';
   export let capabilities: Array<{ label: string; tone?: 'neutral' | 'info' | 'success' }> = [];
+
+  $: displayPath = (() => {
+    if (!url) return '';
+    if (origin && url.startsWith(origin)) {
+      const rest = url.slice(origin.length);
+      return rest === '/' ? '' : rest;
+    }
+    return '';
+  })();
 </script>
 
 <div class="target-card">
@@ -19,10 +28,14 @@
   </div>
 
   <div class="target-body">
-    <div class="target-origin" title={origin || url}>
+    <div class="target-origin" title={url || origin}>
       {origin || 'No active target'}
     </div>
-    {#if url && url !== origin}
+    {#if displayPath}
+      <div class="target-url" title={url}>
+        {displayPath}
+      </div>
+    {:else if !origin && url}
       <div class="target-url" title={url}>
         {url}
       </div>
