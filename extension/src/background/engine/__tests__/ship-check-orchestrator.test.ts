@@ -30,6 +30,10 @@ vi.mock('../../../storage/repository', () => ({
   applyShipCheckRetention: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock('../../sync/sync-client', () => ({
+  syncShipCheck: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { verifyTarget } from '../safety-controller';
 import { startRun } from '../run-coordinator';
 import { startPassiveCheck } from '../passive-check-runner';
@@ -38,6 +42,7 @@ import {
   getFindingsByRunId,
   saveRemediation,
 } from '../../../storage/repository';
+import { syncShipCheck } from '../../sync/sync-client';
 import { startShipCheck, getActiveShipCheckId } from '../ship-check-orchestrator';
 
 describe('Ship Check Orchestrator', () => {
@@ -327,5 +332,28 @@ describe('Ship Check Orchestrator', () => {
     const secondResult = await startShipCheck(target);
     expect(secondResult.shipCheckId).toBeDefined();
     expect(getActiveShipCheckId()).toBeNull();
+  });
+
+  it('triggers syncShipCheck fire-and-forget on completed ship check', async () => {
+    vi.mocked(verifyTarget).mockResolvedValue({ ok: true });
+    vi.mocked(startPassiveCheck).mockResolvedValue({
+      runId: 'r-pass',
+      target,
+      definition: { id: 'd-1', kind: 'runtime_errors', name: 'R', description: '', params: {} },
+      state: 'COMPLETED',
+      createdAt: 1000,
+      updatedAt: 2000,
+    });
+    vi.mocked(startRun).mockResolvedValue({
+      runId: 'r-exp',
+      target,
+      definition: { id: 'd-2', kind: 'fetch_latency', name: 'F', description: '', params: { delayMs: 800, durationMs: 5000, recoveryWindowMs: 8000 } },
+      state: 'COMPLETED',
+      createdAt: 1000,
+      updatedAt: 2000,
+    });
+
+    const result = await startShipCheck(target);
+    expect(syncShipCheck).toHaveBeenCalledWith(result.shipCheckId);
   });
 });

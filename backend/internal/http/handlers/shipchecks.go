@@ -13,14 +13,76 @@ import (
 	"github.com/google/uuid"
 )
 
+type flexibleTime time.Time
+
+func (t *flexibleTime) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" || s == `""` {
+		return nil
+	}
+	// Try parsing numeric timestamp (milliseconds or seconds)
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n > 1e11 {
+			*t = flexibleTime(time.UnixMilli(n).UTC())
+		} else {
+			*t = flexibleTime(time.Unix(n, 0).UTC())
+		}
+		return nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		sec := int64(f)
+		if sec > 1e11 {
+			*t = flexibleTime(time.UnixMilli(sec).UTC())
+		} else {
+			nsec := int64((f - float64(sec)) * 1e9)
+			*t = flexibleTime(time.Unix(sec, nsec).UTC())
+		}
+		return nil
+	}
+
+	var str string
+	if err := json.Unmarshal(b, &str); err != nil {
+		return err
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, str)
+	if err != nil {
+		parsed, err = time.Parse(time.RFC3339, str)
+		if err != nil {
+			return err
+		}
+	}
+	*t = flexibleTime(parsed.UTC())
+	return nil
+}
+
+func (t flexibleTime) Time() time.Time {
+	return time.Time(t)
+}
+
+type ingestEvidenceRequest struct {
+	Kind       string       `json:"kind"`
+	RefID      string       `json:"refId"`
+	CapturedAt flexibleTime `json:"capturedAt"`
+}
+
+type ingestFindingRequest struct {
+	ClientFindingID string                  `json:"clientFindingId"`
+	CheckKind       string                  `json:"checkKind,omitempty"`
+	Severity        domain.Severity         `json:"severity"`
+	Confidence      float64                 `json:"confidence"`
+	Description     string                  `json:"description"`
+	Evidence        []ingestEvidenceRequest `json:"evidence"`
+	Remediation     *domain.Remediation     `json:"remediation,omitempty"`
+}
+
 type ingestShipCheckRequest struct {
-	ClientShipCheckID string           `json:"clientShipCheckId"`
-	TargetOrigin      string           `json:"targetOrigin"`
-	Readiness         domain.Readiness `json:"readiness"`
-	CreatedAt         time.Time        `json:"createdAt"`
-	CompletedAt       time.Time        `json:"completedAt"`
-	Steps             []domain.Step    `json:"steps"`
-	Findings          []domain.Finding `json:"findings"`
+	ClientShipCheckID string                 `json:"clientShipCheckId"`
+	TargetOrigin      string                 `json:"targetOrigin"`
+	Readiness         domain.Readiness       `json:"readiness"`
+	CreatedAt         flexibleTime           `json:"createdAt"`
+	CompletedAt       flexibleTime           `json:"completedAt"`
+	Steps             []domain.Step          `json:"steps"`
+	Findings          []ingestFindingRequest `json:"findings"`
 }
 
 type listShipChecksResponse struct {
@@ -52,12 +114,33 @@ func IngestShipCheck(shipCheckSvc service.ShipCheckService) http.HandlerFunc {
 			ClientShipCheckID: req.ClientShipCheckID,
 			TargetOrigin:      req.TargetOrigin,
 			Readiness:         req.Readiness,
-			CreatedAt:         req.CreatedAt,
-			CompletedAt:       req.CompletedAt,
+			CreatedAt:         req.CreatedAt.Time(),
+			CompletedAt:       req.CompletedAt.Time(),
 			Steps:             req.Steps,
 		}
 
-		created, err := shipCheckSvc.Ingest(r.Context(), sc, req.Findings)
+		findings := make([]domain.Finding, len(req.Findings))
+		for i, f := range req.Findings {
+			evidenceList := make([]domain.Evidence, len(f.Evidence))
+			for j, ev := range f.Evidence {
+				evidenceList[j] = domain.Evidence{
+					Kind:       ev.Kind,
+					RefID:      ev.RefID,
+					CapturedAt: ev.CapturedAt.Time(),
+				}
+			}
+			findings[i] = domain.Finding{
+				ClientFindingID: f.ClientFindingID,
+				CheckKind:       f.CheckKind,
+				Severity:        f.Severity,
+				Confidence:      f.Confidence,
+				Description:     f.Description,
+				Evidence:        evidenceList,
+				Remediation:     f.Remediation,
+			}
+		}
+
+		created, err := shipCheckSvc.Ingest(r.Context(), sc, findings)
 		if err != nil {
 			var valErr *domain.ValidationError
 			if errors.As(err, &valErr) {

@@ -50,6 +50,7 @@ import {
   saveRemediation,
   applyShipCheckRetention,
 } from '../../storage/repository';
+import { syncShipCheck } from '../sync/sync-client';
 
 export const SHIP_CHECK_STEPS: Array<{
   kind: ShipCheckStepKind;
@@ -350,6 +351,10 @@ export async function startShipCheck(target: Target): Promise<ShipCheckRun> {
 
     applyShipCheckRetention().catch((err: unknown) => {
       console.error('[HAVOC][ship-check] retention error:', err);
+    });
+
+    syncShipCheck(shipCheckId).catch((e: unknown) => {
+      console.error('[HAVOC][sync] unexpected sync-client error', e);
     });
 
     return shipCheckRun;

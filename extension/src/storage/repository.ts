@@ -223,6 +223,19 @@ export async function getAllShipChecks(): Promise<ShipCheckRun[]> {
   return getAllItems<ShipCheckRun>(STORES.shipChecks);
 }
 
+export async function updateShipCheckSyncState(
+  shipCheckId: string,
+  patch: Partial<Pick<ShipCheckRun, 'syncState' | 'syncedAt' | 'lastSyncError'>>
+): Promise<void> {
+  const sc = await getShipCheck(shipCheckId);
+  if (!sc) return;
+  const updated: ShipCheckRun = {
+    ...sc,
+    ...patch,
+  };
+  await saveShipCheck(updated);
+}
+
 // ---------------------------------------------------------------------------
 // Cascade Deletion & Retention
 // ---------------------------------------------------------------------------
