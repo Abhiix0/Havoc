@@ -6,6 +6,7 @@ import manifest from './public/manifest.json' with { type: 'json' };
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,28 +57,61 @@ function fixBridgeScriptForCrxjs(): Plugin {
   };
 }
 
+/**
+ * Bundles the content script into a standalone IIFE classic script (no ES module
+ * imports/exports) for dynamic injection via chrome.scripting.executeScript.
+ *
+ * File-based executeScript always runs as a classic (non-module) script in Chrome MV3.
+ * Building content-script.ts through Rollup's main pipeline causes it to be split
+ * into ES module chunks (e.g. importing validator.js), throwing:
+ * "Uncaught SyntaxError: Cannot use import statement outside a module".
+ *
+ * This plugin runs a dedicated esbuild bundling pass in closeBundle to produce
+ * a single, self-contained classic script with all dependencies inlined at
+ * dist/src/content/content-script.js.
+ */
+function bundleContentScript(): Plugin {
+  return {
+    name: 'havoc-bundle-content-script',
+    apply: 'build',
+    async closeBundle() {
+      const entry = path.resolve(__dirname, 'src/content/content-script.ts');
+      const outfile = path.resolve(__dirname, 'dist/src/content/content-script.js');
+
+      await esbuild.build({
+        entryPoints: [entry],
+        bundle: true,
+        format: 'iife',
+        target: 'es2022',
+        outfile,
+        sourcemap: false,
+      });
+
+      console.log('[havoc] dist/src/content/content-script.js: built standalone IIFE classic script');
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     svelte({ preprocess: sveltePreprocess() }),
     fixBridgeScriptForCrxjs(), // must be before crx() so generateBundle(pre) runs first
+    bundleContentScript(),
     crx({ manifest }),
   ],
   build: {
     rollupOptions: {
       input: {
         'src/page/bridge': 'src/page/bridge.ts',
-        'src/content/content-script': 'src/content/content-script.ts',
       },
       // preserveEntrySignatures lives on RollupOptions, not on output
       preserveEntrySignatures: 'strict',
       output: {
         // Ensure the bridge entry chunk lands at src/page/bridge.js (no hash,
         // no assets/ prefix) so it matches the web_accessible_resources path
-        // and the chrome.runtime.getURL call in the content script, and
-        // content-script lands at src/content/content-script.js for on-demand injection.
+        // and the chrome.runtime.getURL call in the content script.
         entryFileNames: (chunk) => {
           if (chunk.name === 'src/page/bridge') return 'src/page/bridge.js';
-          if (chunk.name === 'src/content/content-script') return 'src/content/content-script.js';
           return 'assets/[name]-[hash].js';
         },
       },
