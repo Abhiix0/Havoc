@@ -12,6 +12,8 @@ import (
 
 	"github.com/Abhiix0/Havoc/backend/internal/config"
 	internalHttp "github.com/Abhiix0/Havoc/backend/internal/http"
+	"github.com/Abhiix0/Havoc/backend/internal/repository/memory"
+	"github.com/Abhiix0/Havoc/backend/internal/service"
 )
 
 func main() {
@@ -20,7 +22,11 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	router := internalHttp.NewRouter(cfg)
+	projectRepo, shipCheckRepo := memory.NewRepositories()
+	projectSvc := service.NewProjectService(projectRepo)
+	shipCheckSvc := service.NewShipCheckService(shipCheckRepo)
+
+	router := internalHttp.NewRouter(cfg, projectSvc, shipCheckSvc)
 
 	server := &http.Server{
 		Addr:         cfg.Port,

@@ -8,6 +8,8 @@ import (
 
 	"github.com/Abhiix0/Havoc/backend/internal/config"
 	internalHttp "github.com/Abhiix0/Havoc/backend/internal/http"
+	"github.com/Abhiix0/Havoc/backend/internal/repository/memory"
+	"github.com/Abhiix0/Havoc/backend/internal/service"
 )
 
 func TestHealth(t *testing.T) {
@@ -15,7 +17,11 @@ func TestHealth(t *testing.T) {
 		Port: ":8080",
 		Env:  "development",
 	}
-	router := internalHttp.NewRouter(cfg)
+	pRepo, sRepo := memory.NewRepositories()
+	projectSvc := service.NewProjectService(pRepo)
+	shipCheckSvc := service.NewShipCheckService(sRepo)
+
+	router := internalHttp.NewRouter(cfg, projectSvc, shipCheckSvc)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
