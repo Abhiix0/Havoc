@@ -131,6 +131,24 @@
       </div>
     </div>
 
+    {#if hasErroredSteps}
+      <div class="incomplete-notice">
+        <div class="incomplete-header">
+          <span class="incomplete-icon">!</span>
+          <span class="incomplete-text">
+            {erroredSteps.length} of {(shipCheck?.steps ?? []).length} checks
+            couldn't run — results below reflect only the checks that
+            completed.
+          </span>
+        </div>
+        <ul class="errored-step-list">
+          {#each erroredSteps as step}
+            <li>{friendlyStepName(step.kind)}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
     <!-- Findings List -->
     <div class="findings-section">
       <div class="section-title-row">
@@ -150,17 +168,10 @@
       {:else if findings.length === 0 && hasErroredSteps}
         <div class="clean-state incomplete-state">
           <span class="clean-icon incomplete-icon">!</span>
-          <span class="clean-title">Results are incomplete</span>
+          <span class="clean-title">No issues among completed checks</span>
           <p class="clean-desc">
-            {erroredSteps.length} of {(shipCheck?.steps ?? []).length} checks
-            couldn't run — see below. The checks that did complete found no
-            issues, but this is not a full pass.
+            The checks that did complete found no issues, but this is not a full pass.
           </p>
-          <ul class="errored-step-list">
-            {#each erroredSteps as step}
-              <li>{friendlyStepName(step.kind)}</li>
-            {/each}
-          </ul>
         </div>
       {:else}
         <div class="findings-list">
@@ -408,6 +419,29 @@
     color: var(--recover-green, #4ADE80);
     font-size: 16px;
     font-weight: 700;
+  }
+
+  .incomplete-notice {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    background: rgba(245, 196, 81, 0.08);
+    border: 1px solid rgba(245, 196, 81, 0.25);
+    border-radius: var(--radius-md, 6px);
+    box-sizing: border-box;
+  }
+
+  .incomplete-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .incomplete-text {
+    font-size: 10.5px;
+    color: var(--text-primary, #F2F2F0);
+    line-height: 1.4;
   }
 
   .incomplete-state {
