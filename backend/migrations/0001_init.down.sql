@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS remediations;
+DROP TABLE IF EXISTS evidence;
+DROP TABLE IF EXISTS findings;
+DROP TABLE IF EXISTS ship_check_steps;
+DROP TABLE IF EXISTS ship_checks;
+DROP TABLE IF EXISTS projects;
