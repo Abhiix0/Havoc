@@ -377,11 +377,14 @@ describe('HAVOC Storage Repository', () => {
     expect(await getRemediationsByRunId(runId)).toEqual([]);
   });
 
-  it('applyShipCheckRetention keeps the most recent 25 ship checks and cascade-deletes step runs', async () => {
-    // Populate 28 Ship Checks with child run, event, and finding records
+  it('applyShipCheckRetention keeps the most recent 25 ship checks and cascade-deletes step runs with all child records (remediations, findings, evidence, recovery, signals, events)', async () => {
+    // Populate 28 Ship Checks with full child records across all stores
     for (let i = 1; i <= 28; i++) {
       const scId = `sc-${i}`;
       const stepRunId = `step-run-${i}`;
+      const findingId = `finding-${i}`;
+      const recId = `recovery-${i}`;
+      const evId = `ev-${i}`;
       const createdAt = 1000 * i;
 
       const sc: ShipCheckRun = {
@@ -413,19 +416,61 @@ describe('HAVOC Storage Repository', () => {
         source: 'content',
       };
 
+      const signal: Signal = {
+        id: `sig-${i}`,
+        runId: stepRunId,
+        type: 'RequestFailureObserved',
+        confidence: 0.9,
+        derivedFrom: [`event-${i}`],
+        timestamp: createdAt + 200,
+      };
+
+      const recovery: Recovery = {
+        id: recId,
+        runId: stepRunId,
+        outcome: 'FAILED',
+        windowStart: createdAt + 200,
+        windowEnd: createdAt + 8000,
+        evaluatedAt: createdAt + 8000,
+      };
+
+      const evidence: Evidence = {
+        id: evId,
+        runId: stepRunId,
+        kind: 'event',
+        refId: `event-${i}`,
+        capturedAt: createdAt + 500,
+      };
+
       const finding: Finding = {
-        id: `finding-${i}`,
+        id: findingId,
         runId: stepRunId,
         severity: 'MEDIUM',
         confidence: 0.9,
         description: `Finding for step ${i}`,
-        evidenceIds: [],
+        evidenceIds: [evId],
+        recoveryId: recId,
+      };
+
+      const remediation: Remediation = {
+        id: `rem-${i}`,
+        findingId,
+        runId: stepRunId,
+        title: `Remediation for step ${i}`,
+        whatHappened: 'Issue occurred',
+        whyItMatters: 'Impacts users',
+        howToFix: ['Step 1'],
+        fixPrompt: 'Prompt text',
       };
 
       await saveShipCheck(sc);
       await saveRun(stepRun);
       await saveEvent(event);
+      await saveSignal(signal);
+      await saveRecovery(recovery);
+      await saveAllEvidence([evidence]);
       await saveFinding(finding);
+      await saveRemediation(remediation);
     }
 
     const allBefore = await getAllShipChecks();
@@ -437,20 +482,36 @@ describe('HAVOC Storage Repository', () => {
     const allAfter = await getAllShipChecks();
     expect(allAfter).toHaveLength(25);
 
-    // Verify oldest 3 ship checks and their step runs are completely purged
+    // Verify oldest 3 ship checks and all their associated records across all stores are completely purged
     for (let i = 1; i <= 3; i++) {
+      const stepRunId = `step-run-${i}`;
+      const findingId = `finding-${i}`;
+
       expect(await getShipCheck(`sc-${i}`)).toBeUndefined();
-      expect(await getRun(`step-run-${i}`)).toBeUndefined();
-      expect(await getEventsByRunId(`step-run-${i}`)).toEqual([]);
-      expect(await getFindingsByRunId(`step-run-${i}`)).toEqual([]);
+      expect(await getRun(stepRunId)).toBeUndefined();
+      expect(await getEventsByRunId(stepRunId)).toEqual([]);
+      expect(await getSignalsByRunId(stepRunId)).toEqual([]);
+      expect(await getRecoveryByRunId(stepRunId)).toBeUndefined();
+      expect(await getEvidenceByRunId(stepRunId)).toEqual([]);
+      expect(await getFindingsByRunId(stepRunId)).toEqual([]);
+      expect(await getRemediationsByRunId(stepRunId)).toEqual([]);
+      expect(await getRemediationsByFindingId(findingId)).toEqual([]);
     }
 
-    // Verify retained 25 ship checks and their step runs are intact
+    // Verify retained 25 ship checks and all their child records are intact
     for (let i = 4; i <= 28; i++) {
+      const stepRunId = `step-run-${i}`;
+      const findingId = `finding-${i}`;
+
       expect(await getShipCheck(`sc-${i}`)).toBeDefined();
-      expect(await getRun(`step-run-${i}`)).toBeDefined();
-      expect(await getEventsByRunId(`step-run-${i}`)).toHaveLength(1);
-      expect(await getFindingsByRunId(`step-run-${i}`)).toHaveLength(1);
+      expect(await getRun(stepRunId)).toBeDefined();
+      expect(await getEventsByRunId(stepRunId)).toHaveLength(1);
+      expect(await getSignalsByRunId(stepRunId)).toHaveLength(1);
+      expect(await getRecoveryByRunId(stepRunId)).toBeDefined();
+      expect(await getEvidenceByRunId(stepRunId)).toHaveLength(1);
+      expect(await getFindingsByRunId(stepRunId)).toHaveLength(1);
+      expect(await getRemediationsByRunId(stepRunId)).toHaveLength(1);
+      expect(await getRemediationsByFindingId(findingId)).toHaveLength(1);
     }
   });
 });
