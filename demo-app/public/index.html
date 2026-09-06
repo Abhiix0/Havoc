@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HAVOC Target Demo App</title>
+  <link rel="stylesheet" href="/style.css">
+  
+  <!-- 
+    ========================================================================
+    FLAW E (SECRET_SCAN Check Target):
+    FAKE CREDENTIAL FOR HAVOC DEMO PURPOSES ONLY — DOES NOT WORK,
+    DO NOT REPORT AS A REAL LEAK.
+    In broken mode, this fake test key is exposed in the client script bundle.
+    In fixed mode, sensitive configuration is kept server-side.
+    ========================================================================
+  -->
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const activeMode = urlParams.get('mode') || 'broken';
+    
+    if (activeMode === 'broken') {
+      // FAKE CREDENTIAL FOR HAVOC DEMO PURPOSES ONLY — DOES NOT WORK, DO NOT REPORT AS A REAL LEAK.
+      window.__APP_CONFIG__ = {
+        ENV: 'demo-broken',
+        STRIPE_TEST_SECRET: 'sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234',
+        AWS_BACKUP_ACCESS_KEY: 'AKIAFAKEFAKEFAKE1234'
+      };
+    } else {
+      window.__APP_CONFIG__ = {
+        ENV: 'demo-fixed',
+        PUBLIC_CLIENT_ID: 'pub_client_safe_demo_9876'
+      };
+    }
+  </script>
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Active Mode Indicator Banner -->
+    <div id="mode-banner" class="mode-banner broken">
+      <span>Mode: <strong id="mode-label">BROKEN (6 Flaws Active)</strong></span>
+      <a id="mode-toggle-btn" class="mode-toggle-link" href="?mode=fixed">Switch to FIXED Mode</a>
+    </div>
+
+    <header>
+      <h1>HAVOC Microservice Dashboard</h1>
+      <p class="subtitle">A resilient target application testing suite for browser chaos engineering</p>
+    </header>
+
+    <!-- FLAW D: Realistic naturally-triggered runtime error via profile badge -->
+    <div class="card">
+      <div class="card-title">
+        <span>Session & Telemetry Context</span>
+        <button id="btn-inspect-profile" class="btn btn-secondary">Inspect User Profile</button>
+      </div>
+      <p id="profile-status" style="font-size: 0.9rem; color: var(--text-muted);">
+        Click to inspect active user session preferences.
+      </p>
+    </div>
+
+    <!-- FLAW A: API Failure Handling -->
+    <div class="card">
+      <div class="card-title">
+        <span>Registered Services</span>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-reload-items" class="btn btn-secondary">Reload</button>
+          <button id="btn-trigger-fail" class="btn btn-secondary" style="color: #fca5a5;">Simulate 500 Error</button>
+        </div>
+      </div>
+      
+      <!-- Error banner shown in fixed mode -->
+      <div id="items-error-alert" class="error-alert" style="display: none;">
+        <span id="items-error-msg">Failed to load services</span>
+        <button id="btn-retry-items" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Retry</button>
+      </div>
+
+      <!-- Loading indicator -->
+      <div id="items-loading" style="display: none; padding: 1rem; text-align: center;">
+        <div class="spinner"></div>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">Fetching services from API...</p>
+      </div>
+
+      <!-- Item catalog list -->
+      <div id="items-list" class="item-list"></div>
+    </div>
+
+    <!-- FLAW B: API Latency Feedback -->
+    <div class="card">
+      <div class="card-title">
+        <span>System Health Summary (Slow Endpoint: 2.5s)</span>
+        <button id="btn-load-summary" class="btn btn-secondary">Fetch Summary</button>
+      </div>
+      
+      <div id="summary-loading" style="display: none; margin-bottom: 0.75rem; color: var(--accent-blue); font-size: 0.9rem;">
+        <div class="spinner" style="vertical-align: middle; margin-right: 0.5rem;"></div>
+        <span>Querying aggregation pipeline...</span>
+      </div>
+
+      <div id="summary-content" style="font-size: 0.95rem; color: var(--text-muted);">
+        Click 'Fetch Summary' to inspect real-time aggregation metrics.
+      </div>
+    </div>
+
+    <!-- FLAW C: Input / Form Stress -->
+    <div class="card">
+      <div class="card-title">
+        <span>Quick Register Microservice Tag</span>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+        Format expected: <code>CATEGORY-NAME</code> (e.g., <code>CORE-BILLING</code>)
+      </p>
+      <div class="input-group">
+        <input type="text" id="tag-input" placeholder="Enter service code tag (e.g. CORE-BILLING)">
+        <button id="btn-apply-tag" class="btn">Format & Register</button>
+      </div>
+      <p id="tag-output" style="margin-top: 0.75rem; font-size: 0.9rem; color: var(--text-muted);"></p>
+    </div>
+
+    <!-- FLAW F: Layout / Viewport Overflow -->
+    <div class="card">
+      <div class="card-title">
+        <span>Infrastructure Cluster Nodes (Layout Test)</span>
+      </div>
+      <div id="table-container" class="broken-fixed-table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Node ID</th>
+              <th>Availability Zone</th>
+              <th>IP Address</th>
+              <th>Memory Allocation</th>
+              <th>CPU Usage</th>
+              <th>Health Status</th>
+              <th>Last Heartbeat Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>node-us-east-1a-01</td>
+              <td>us-east-1a</td>
+              <td>10.0.128.45</td>
+              <td>64 GB / 128 GB</td>
+              <td>34.2%</td>
+              <td><span class="badge badge-active">HEALTHY</span></td>
+              <td>2026-09-06T11:00:00Z</td>
+            </tr>
+            <tr>
+              <td>node-us-east-1b-02</td>
+              <td>us-east-1b</td>
+              <td>10.0.129.88</td>
+              <td>92 GB / 128 GB</td>
+              <td>78.9%</td>
+              <td><span class="badge badge-active">HEALTHY</span></td>
+              <td>2026-09-06T11:00:01Z</td>
+            </tr>
+            <tr>
+              <td>node-us-east-1c-03</td>
+              <td>us-east-1c</td>
+              <td>10.0.130.12</td>
+              <td>120 GB / 128 GB</td>
+              <td>94.1%</td>
+              <td><span class="badge badge-maintenance">ELEVATED</span></td>
+              <td>2026-09-06T11:00:02Z</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

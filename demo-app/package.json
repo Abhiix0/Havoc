@@ -1,0 +1,16 @@
+{
+  "name": "havoc-demo-app",
+  "version": "1.0.0",
+  "description": "A deliberately flawed target application for testing and demonstrating HAVOC Ship Checks",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "demo:broken": "node server.js --mode=broken",
+    "demo:fixed": "node server.js --mode=fixed",
+    "test": "node --test test/smoke.test.js"
+  },
+  "keywords": ["havoc", "resilience", "chaos-engineering", "testing-demo"],
+  "author": "",
+  "license": "ISC"
+}
