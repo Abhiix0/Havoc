@@ -916,6 +916,47 @@ That's HAVOC.
 
 ---
 
+## Running the Backend Locally
+
+HAVOC includes an optional Go backend backed by PostgreSQL to persist projects and Ship Check reports.
+
+### Quick Start with Docker Compose
+
+1. **Start the database and API**:
+   ```bash
+   docker compose up --build -d
+   ```
+   *Note: Database migrations run automatically at API startup.*
+
+2. **Verify the server is healthy**:
+   ```bash
+   curl -sf http://localhost:8080/healthz
+   ```
+   Output: `{"status":"ok"}`
+
+3. **Test project creation**:
+   ```bash
+   curl -sf -X POST http://localhost:8080/api/v1/projects \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Test Project"}'
+   ```
+
+4. **Tear down with clean state**:
+   ```bash
+   docker compose down -v
+   ```
+
+### Running Natively with Go
+
+1. Provide `DATABASE_URL` and `PORT` environment variables (refer to `backend/.env.example`).
+2. Build and run the server:
+   ```bash
+   cd backend
+   go run ./cmd/havoc-api
+   ```
+
+---
+
 ## License
 
 License information will be added before the first public release.
