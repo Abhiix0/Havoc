@@ -30,30 +30,42 @@ function pass(msg) {
   console.log(`\x1b[32m[VERIFY BUILD PASSED]\x1b[0m ${msg}`);
 }
 
-// 1. Check content script existence
-const contentScriptPath = path.join(distDir, 'src', 'content', 'content-script.js');
-if (!fs.existsSync(contentScriptPath)) {
-  fail(`Missing built content script at ${contentScriptPath}`);
-} else {
-  const content = fs.readFileSync(contentScriptPath, 'utf-8');
+function checkNoImportsExports(filePath, label) {
+  if (!fs.existsSync(filePath)) {
+    fail(`Missing built file at ${filePath}`);
+    return;
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
 
   // Check for forbidden module statements: import / export
-  // Notice that in a classic script / IIFE, top-level import/export causes SyntaxError.
-  const hasImport = /\bimport\s*(\{|\*|[a-zA-Z_$]|"|')/m.test(content) || /^\s*import\b/m.test(content);
-  const hasExport = /\bexport\s*(\{|\*|[a-zA-Z_$]|default\b)/m.test(content) || /^\s*export\b/m.test(content);
+  // Note: must require whitespace or brackets/quotes after 'import' to avoid false
+  // positives on substrings like '!important' in injected CSS.
+  const hasImport =
+    /\bimport\s+(\{|\*|[a-zA-Z_$])/m.test(content) ||
+    /\bimport\s*["'(]/m.test(content) ||
+    /^\s*import\b/m.test(content);
+
+  const hasExport =
+    /\bexport\s+(\{|\*|[a-zA-Z_$]|default\b)/m.test(content) ||
+    /^\s*export\b/m.test(content);
 
   if (hasImport) {
-    fail('dist/src/content/content-script.js contains an ES `import` statement! It cannot run as a classic script.');
+    fail(`${label} contains an ES \`import\` statement! It must be standalone with zero external chunk imports.`);
   } else {
-    pass('dist/src/content/content-script.js has no `import` statements.');
+    pass(`${label} has no \`import\` statements.`);
   }
 
   if (hasExport) {
-    fail('dist/src/content/content-script.js contains an ES `export` statement! It cannot run as a classic script.');
+    fail(`${label} contains an ES \`export\` statement! It must be a self-contained script.`);
   } else {
-    pass('dist/src/content/content-script.js has no `export` statements.');
+    pass(`${label} has no \`export\` statements.`);
   }
 }
+
+// 1. Check content script existence and self-containment
+const contentScriptPath = path.join(distDir, 'src', 'content', 'content-script.js');
+checkNoImportsExports(contentScriptPath, 'dist/src/content/content-script.js');
 
 // 2. Check manifest
 const manifestPath = path.join(distDir, 'manifest.json');
@@ -83,13 +95,9 @@ if (!fs.existsSync(manifestPath)) {
   }
 }
 
-// 3. Check bridge script existence
+// 3. Check bridge script existence and self-containment
 const bridgeScriptPath = path.join(distDir, 'src', 'page', 'bridge.js');
-if (!fs.existsSync(bridgeScriptPath)) {
-  fail(`Missing built bridge script at ${bridgeScriptPath}`);
-} else {
-  pass('dist/src/page/bridge.js exists.');
-}
+checkNoImportsExports(bridgeScriptPath, 'dist/src/page/bridge.js');
 
 if (failures > 0) {
   console.error(`\n\x1b[31mBuild verification finished with ${failures} error(s).\x1b[0m\n`);
