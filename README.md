@@ -1,962 +1,149 @@
 # HAVOC
 
-### Break the running application. Study how it survives.
+### Audit your AI-built app before you ship it.
 
-HAVOC is an **evidence-driven browser resilience testing tool** that injects controlled failures into running web applications, observes their behavior, and produces evidence-backed findings about failure handling and recovery.
+AI coding tools and vibe-coding workflows allow engineers to build web applications at unprecedented speed. But rapid iteration often skips resilience fundamentals: what happens when an API endpoint times out, a backend 500s, an input field is fuzzed, or a user opens your dashboard on a narrow screen?
 
-Instead of writing a test first and hoping the application behaves correctly, HAVOC takes a different approach:
-
-```text
-Running Application
-        ↓
-   Controlled Failure
-        ↓
-      Observe
-        ↓
-      Evidence
-        ↓
-       Signals
-        ↓
-      Recovery
-        ↓
-      Autopsy
-```
-
-The question isn't simply:
-
-> **"Did the application fail?"**
-
-It's:
-
-> **"When something failed, did the application detect it, communicate it, and recover correctly?"**
+HAVOC is an **in-browser pre-ship resilience audit tool**. It subjects your running web application to controlled, realistic disruptions, gathers technical evidence across isolated execution contexts, and produces deterministic, LLM-ready fix prompts to immediately patch surfaced flaws.
 
 ---
 
-## Why HAVOC?
+## Current Status
 
-Modern applications are usually tested under healthy conditions.
-
-Requests succeed.
-
-Servers respond.
-
-Networks behave.
-
-Users enter reasonable input.
-
-But production systems don't live in that universe.
-
-```text
-Network timeout
-API failure
-Slow request
-Unexpected input
-Layout pressure
-Runtime error
-```
-
-These failures expose a different class of bugs:
-
-* loading states that never disappear
-* missing error messages
-* broken retry behavior
-* silent failures
-* unusable degraded states
-* UI corruption
-* incomplete recovery
-* inconsistent application state
-
-HAVOC deliberately introduces controlled failures and investigates what happens next.
+✅ **V1 complete and verified end-to-end**
+- Chrome Manifest V3 extension with isolated service worker, content script, and page bridge.
+- Autonomous six-phase Ship Check suite with deterministic remediation engine.
+- Fully wired Node.js demonstration target app with broken and fixed benchmark modes.
+- Go REST API (`havoc-api`) and PostgreSQL 16 persistence for team report sync.
+- 100% passing automated test suite (extension Vitest, Go integration, and demo app smoke tests).
 
 ---
 
-# Core Thesis
+## The Six Ship Checks
 
-HAVOC is not primarily a "chaos monkey for Chrome."
+HAVOC runs an autonomous battery of active disruptions and passive inspections directly within your active browser tab:
 
-Its purpose is:
-
-> **To test whether an application can detect, communicate, and recover from controlled failure.**
-
-The core product loop is:
-
-```text
-INJECT
-   ↓
-OBSERVE
-   ↓
-EVIDENCE
-   ↓
-DETECT
-   ↓
-RECOVER
-   ↓
-EXPLAIN
-```
-
-The valuable part isn't the failure injection itself.
-
-Anyone can delay a `fetch()` call.
-
-The interesting system is the pipeline that turns:
-
-```text
-Controlled Failure
-        ↓
-Causal Event Stream
-        ↓
-Behavioral Signals
-        ↓
-Evidence
-        ↓
-Recovery Analysis
-        ↓
-Actionable Finding
-```
+| Check | Product Scope | What It Evaluates |
+| :--- | :--- | :--- |
+| **Testing API failures** | `fetch_failure` | Intercepts `fetch`/XHR and simulates network drops, timeouts, and 500/503 errors. Flags missing error states, infinite spinners, and lack of retry paths. |
+| **Testing slow API responses** | `fetch_latency` | Injects controlled latency delays (2.5s–3.0s) into outgoing requests to verify loading skeletons, spinner feedback, and disabled button states. |
+| **Testing form inputs** | `input_stress` | Non-destructively fuzzes inputs with edge-case characters, unicode, emojis, and boundary strings to catch unhandled client-side exceptions. |
+| **Checking for runtime errors** | `runtime_errors` | Passively captures uncaught JavaScript exceptions (`window.onerror`) and unhandled promise rejections on the page. |
+| **Scanning for exposed secrets** | `secret_scan` | Inspects client DOM, scripts, and bundles for leaked API keys, tokens, and private credentials (e.g. Stripe, AWS, GitHub). |
+| **Testing narrow screens** | `viewport_stress` | Dynamically applies responsive viewport constraints (320px / 280px) to surface horizontal layout overflow and clipped controls. |
 
 ---
 
-# Example
+## Quickstart
 
-Suppose a page requests:
+Run a complete audit in under 3 minutes using the bundled demo application:
 
-```text
-GET /api/projects
+### 1. Build the Extension
+```bash
+# From repo root:
+npm install --prefix extension
+npm run build --prefix extension
 ```
 
-HAVOC injects a controlled 3-second delay.
-
-The application enters a loading state.
-
-The request eventually succeeds.
-
-HAVOC observes:
-
-```text
-REQUEST_STARTED
-CHAOS_INJECTED
-LOADING_STATE_DETECTED
-REQUEST_COMPLETED
-LOADING_STATE_EXITED
-RECOVERY_COMPLETED
-```
-
-The result:
-
-```text
-🟢 RECOVERED
-
-The application tolerated the injected latency
-and returned to an observable stable state.
-```
-
-Now imagine the request fails:
-
-```text
-REQUEST_STARTED
-CHAOS_INJECTED
-REQUEST_FAILED
-LOADING_STATE_DETECTED
-...
-RECOVERY_WINDOW_EXPIRED
-```
-
-HAVOC may produce:
-
-```text
-🔴 FINDING
-
-Potential missing failure recovery
-
-Evidence:
-- request failed
-- loading state persisted
-- no observable error state
-- recovery window expired
-
-Confidence: 0.91
-```
-
-The important rule is:
-
-> **Every finding must be explainable from evidence.**
-
----
-
-# Architecture
-
-HAVOC is designed as a bounded experimental system.
-
-```text
-                         HAVOC
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Run Coordinator │
-                  └────────┬────────┘
-                           │
-                ┌──────────┼──────────┐
-                ▼          ▼          ▼
-             Safety     Experiment   State
-            Controller    Engine    Machine
-                           │
-                           ▼
-                    Resource Registry
-                           │
-                           ▼
-                      Runtime Adapter
-                           │
-                 ┌─────────┴─────────┐
-                 ▼                   ▼
-           Content Script          Page World
-                 │                   │
-                 │              Instrumentation
-                 │                   │
-                 └─────────┬─────────┘
-                           ▼
-                      Event Buffer
-                           │
-                           ▼
-                      Signal Engine
-                           │
-                           ▼
-                     Recovery Window
-                           │
-                           ▼
-                      Finding Engine
-                           │
-                    ┌──────┴──────┐
-                    ▼             ▼
-                 Evidence      Recovery
-                    │             │
-                    └──────┬──────┘
-                           ▼
-                         Report
-                           │
-                           ▼
-                       IndexedDB
-```
-
----
-
-# Runtime Architecture
-
-HAVOC V1 runs as a Chrome Manifest V3 extension.
-
-The browser execution model is intentionally split into isolated responsibilities.
-
-```text
-┌─────────────────────────────────────┐
-│ Extension Service Worker            │
-│                                     │
-│ Run coordination                    │
-│ State persistence                   │
-│ Message routing                     │
-│ Experiment orchestration            │
-│ Safety enforcement                  │
-└───────────────┬─────────────────────┘
-                │ chrome.runtime
-                ▼
-┌─────────────────────────────────────┐
-│ Content Script                       │
-│                                     │
-│ Target detection                    │
-│ DOM observation                     │
-│ Bridge relay                        │
-│ UI communication                    │
-└───────────────┬─────────────────────┘
-                │ window.postMessage
-                ▼
-┌─────────────────────────────────────┐
-│ PAGE WORLD                           │
-│                                     │
-│ fetch instrumentation               │
-│ XHR instrumentation                 │
-│ Runtime instrumentation             │
-│ Experiment hooks                    │
-└─────────────────────────────────────┘
-```
-
-The popup is only a control surface.
-
-It does **not** own experiment state.
-
-If the popup closes, the experiment must continue.
-
----
-
-# Domain Model
-
-HAVOC's core domain is intentionally small.
-
-```text
-Target
-ExperimentDefinition
-ExperimentRun
-ExperimentState
-ResourceRegistry
-Event
-Signal
-Finding
-Evidence
-Recovery
-```
-
-The most important distinction is:
-
-```text
-EVENT ≠ SIGNAL ≠ FINDING
-```
-
-### Event
-
-A raw observation.
-
-```text
-REQUEST_COMPLETED
-```
-
-### Signal
-
-An interpretation derived from observations.
-
-```text
-PotentialErrorStateDetected
-```
-
-### Finding
-
-An evidence-backed conclusion.
-
-```text
-Application may not recover from failed request
-```
-
-This separation allows HAVOC to evolve its analysis without corrupting the original observations.
-
----
-
-# Experiment Lifecycle
-
-Every experiment follows a controlled lifecycle:
-
-```text
-CREATED
-   ↓
-PREPARING
-   ↓
-ACTIVE
-   ↓
-STOPPING
-   ↓
-CLEANING
-   ↓
-EVALUATING
-   ↓
-COMPLETED
-```
-
-Possible terminal/error states:
-
-```text
-FAILED
-ABORTED
-TIMED_OUT
-CLEANUP_FAILED
-TARGET_LOST
-```
-
-The state machine is designed around the realities of browser execution and Manifest V3 service-worker suspension.
-
----
-
-# Safety
-
-HAVOC is intentionally bounded.
-
-V1 experiments operate only on:
-
-* the explicitly selected/current active tab
-* the current target origin
-* the top-level frame
-
-HAVOC does not intentionally:
-
-* modify unrelated tabs
-* affect unrelated origins
-* target child iframes
-* submit forms automatically
-* perform destructive application actions
-* silently execute experiments
-
-Every mutation introduced by HAVOC must have a cleanup path.
-
----
-
-# Resource Registry
-
-Experiments may temporarily create:
-
-```text
-fetch hooks
-XHR hooks
-timers
-event listeners
-observers
-injected styles
-```
-
-These resources are tracked centrally.
-
-```text
-Experiment
-     │
-     ▼
-Resource Registry
-     ├── fetch hook
-     ├── XHR hook
-     ├── timer
-     ├── observer
-     └── event listener
-```
-
-When the experiment ends:
-
-```text
-STOP
- ↓
-Cleanup all resources
- ↓
-Verify cleanup
- ↓
-Evaluate recovery
-```
-
-Cleanup is:
-
-* best effort
-* idempotent
-* independently attempted
-* observable
-* capable of reporting partial failure
-
-The goal is simple:
-
-> **HAVOC should never leave the application in a modified state because its own cleanup logic gave up halfway through.**
-
----
-
-# Evidence-First Analysis
-
-HAVOC does not treat "something looked wrong" as a finding.
-
-Findings must be backed by evidence.
-
-```text
-Events
-  ↓
-Signals
-  ↓
-Evidence
-  ↓
-Finding
-```
-
-Evidence may reference:
-
-```text
-Event
-Signal
-Metric
-Snapshot
-```
-
-Causal relationships are preserved through:
-
-```text
-correlationId
-parentEventId
-sequence
-timestamp
-```
-
-This allows HAVOC to construct a trace such as:
-
-```text
-User Interaction
-       │
-       ▼
-Request Started
-       │
-       ▼
-Chaos Injected
-       │
-       ▼
-Request Failed
-       │
-       ▼
-Error State Detected
-       │
-       ▼
-Recovery Completed
-```
-
----
-
-# Recovery
-
-Failure alone is not a bug.
-
-A resilient application can fail safely and recover correctly.
-
-HAVOC therefore evaluates application recovery separately from experiment cleanup.
-
-Recovery outcomes:
-
-```text
-RECOVERED
-DEGRADED
-FAILED
-UNKNOWN
-```
-
-`UNKNOWN` is intentional.
-
-If HAVOC cannot establish whether recovery occurred, it should say:
-
-```text
-UNKNOWN
-```
-
-rather than inventing confidence.
-
-Recovery evaluation happens over an explicit observation/recovery window rather than immediately after the injected failure.
-
----
-
-# V1 Experiments
-
-HAVOC V1 intentionally starts small.
-
-### 1. Fetch Latency
-
-Inject controlled latency into network requests.
-
-Initial experiment:
-
-```text
-3-second Fetch Latency
-```
-
-### 2. Fetch Failure
-
-Controlled failure modes:
-
-```text
-transport_error
-synthetic_http_error
-synthetic_timeout
-```
-
-These remain semantically distinct.
-
-For example:
-
-```text
-Transport Error
-→ fetch rejects
-
-HTTP 500
-→ fetch resolves
-→ response.ok === false
-
-Timeout
-→ behavior depends on application timeout handling
-```
-
-### Future experiments
-
-```text
-Input Stress
-Viewport / Layout Stress
-```
-
-Input stress begins passively.
-
-HAVOC does not automatically submit forms or trigger potentially destructive actions.
-
----
-
-# Development Roadmap
-
-HAVOC is being built in deliberate phases.
-
-```text
-0. FOUNDATION
-      ↓
-1. MV3 RUNTIME
-      ↓
-2. INSTRUMENTATION
-      ↓
-3. ENGINE
-      ↓
-4. CHAOS
-      ↓
-5. SIGNALS
-      ↓
-6. AUTOPSY
-      ↓
-7. PERSISTENCE
-      ↓
-8. PIXEL UI
-      ↓
-9. HARDENING
-      ↓
-10. HAVOC v1.0
-```
-
-After V1:
-
-```text
-Playwright Runtime
-      ↓
-CLI
-      ↓
-CI
-      ↓
-Observability
-      ↓
-AI
-```
-
-These are intentionally outside the V1 implementation boundary.
-
----
-
-# V1 Vertical Slice
-
-The first real end-to-end slice is:
-
-```text
-Chrome
-  ↓
-Page Instrumentation
-  ↓
-Fetch Observation
-  ↓
-3s Latency Injection
-  ↓
-Event Stream
-  ↓
-Signal
-  ↓
-Finding
-  ↓
-Recovery
-  ↓
-Autopsy
-```
-
-The first milestone is deliberately not a beautiful dashboard.
-
-It is proving that HAVOC can reliably perform this loop:
-
-```text
-Inject
-  ↓
-Observe
-  ↓
-Analyze
-  ↓
-Cleanup
-  ↓
-Explain
-```
-
----
-
-# Testing Philosophy
-
-HAVOC uses deterministic golden tests to protect its core reasoning.
-
-Important scenarios include:
-
-### Recovery
-
-```text
-Failure
- ↓
-Retry
- ↓
-Success
- ↓
-Stable UI
-
-Expected:
-RECOVERED
-```
-
-### Unknown
-
-```text
-Failure
- ↓
-Ambiguous application behavior
- ↓
-Recovery cannot be established
-
-Expected:
-UNKNOWN
-```
-
-### No unjustified finding
-
-HAVOC must not produce a high-severity finding when the evidence does not support one.
-
-### Cleanup
-
-```text
-Resource A → ✓
-Resource B → ✓
-Resource C → ✓
-
-Expected:
-clean
-```
-
-And:
-
-```text
-Resource A → ✓
-Resource B → ✗
-Resource C → ✓
-
-Expected:
-CLEANUP_FAILED
-```
-
----
-
-# Project Structure
-
-The repository is intentionally organized around runtime boundaries and domain responsibilities.
-
-```text
-extension/
-├── public/
-│   └── manifest.json
-│
-└── src/
-    ├── background/
-    │   └── service-worker.ts
-    │
-    ├── content/
-    │   └── content-script.ts
-    │
-    ├── page/
-    │   └── ...
-    │
-    ├── domain/
-    │   ├── target.ts
-    │   ├── event.ts
-    │   ├── signal.ts
-    │   ├── finding.ts
-    │   ├── evidence.ts
-    │   ├── recovery.ts
-    │   ├── experiment.ts
-    │   └── run.ts
-    │
-    ├── engine/
-    │   ├── ...
-    │
-    ├── messaging/
-    │   ├── messages.ts
-    │   └── validator.ts
-    │
-    ├── runtime/
-    │   └── ...
-    │
-    ├── storage/
-    │   └── database.ts
-    │
-    └── popup/
-        ├── App.svelte
-        └── main.ts
-```
-
-The structure may evolve as implementation reveals better boundaries, but the architectural contracts remain stable.
-
----
-
-# Technology
-
-V1:
-
-| Layer       | Technology                         |
-| ----------- | ---------------------------------- |
-| Extension   | Chrome Manifest V3                 |
-| Language    | TypeScript                         |
-| UI          | Svelte                             |
-| Build       | Vite                               |
-| Persistence | IndexedDB                          |
-| Runtime     | Chrome                             |
-| Testing     | TypeScript-compatible test tooling |
-
-The project intentionally avoids premature infrastructure.
-
-Not in V1:
-
-```text
-Go
-PostgreSQL
-Redis
-WebSockets
-Kubernetes
-Playwright
-CLI
-CI infrastructure
-OpenTelemetry
-Prometheus
-Grafana
-AI
-```
-
-These become relevant only after the browser-native core has been proven.
-
----
-
-# Design Principles
-
-HAVOC is built around a few non-negotiable principles.
-
-### 1. Controlled failure
-
-Chaos must be bounded, deterministic, and reversible.
-
-### 2. Evidence over intuition
-
-Every finding must be explainable from observable evidence.
-
-### 3. Event ≠ Signal ≠ Finding
-
-Raw observations must remain distinguishable from interpretation.
-
-### 4. Uncertainty is valid
-
-HAVOC may report `UNKNOWN`.
-
-It must never manufacture certainty.
-
-### 5. Cleanup is mandatory
-
-Every mutation must have an owner and cleanup path.
-
-### 6. The popup is not the runtime
-
-UI lifecycle must never control experiment lifecycle.
-
-### 7. Runtime-specific implementation, shared domain contracts
-
-Chrome and future Playwright runtimes share concepts, not necessarily implementation details.
-
-### 8. Build the smallest vertical slice first
-
-HAVOC earns complexity only after the core loop works.
-
----
-
-# Current Status
-
-🚧 **Early Development**
-
-Current repository state:
-
-```text
-Phase -1
-Empty scaffold
-```
-
-The next milestone is:
-
-```text
-Phase 0 — Foundation
-```
-
-The immediate objective is to produce a buildable, loadable Chrome MV3 extension with the foundational domain and runtime contracts in place.
-
----
-
-# The Long-Term Vision
-
-HAVOC starts inside the browser.
-
-Eventually, the same experimental model can operate across:
-
-```text
-Browser Extension
-      ↓
-Playwright Runtime
-      ↓
-CLI
-      ↓
-CI
-      ↓
-Observability
-      ↓
-AI-assisted Autopsy
-```
-
-The long-term goal is not simply to generate more failures.
-
-It is to build a system capable of answering:
-
-> **What happened when the system failed, why did it happen, did the application recover, and what evidence proves it?**
-
-That's HAVOC.
-
----
-
-## Running the Backend Locally
-
-HAVOC includes an optional Go backend backed by PostgreSQL to persist projects and Ship Check reports.
-
-### Quick Start with Docker Compose
-
-1. **Start the database and API**:
-   ```bash
-   docker compose up --build -d
+### 2. Load Extension into Chrome
+1. Open Google Chrome and go to `chrome://extensions`.
+2. Enable **Developer mode** (top right).
+3. Click **Load unpacked** and select the directory:
    ```
-   *Note: Database migrations run automatically at API startup.*
-
-2. **Verify the server is healthy**:
-   ```bash
-   curl -sf http://localhost:8080/healthz
+   <repo-root>/extension/dist
    ```
-   Output: `{"status":"ok"}`
+4. Pin the **HAVOC** extension icon in your Chrome toolbar.
 
-3. **Test project creation**:
-   ```bash
-   curl -sf -X POST http://localhost:8080/api/v1/projects \
-     -H "Content-Type: application/json" \
-     -d '{"name":"Test Project"}'
-   ```
+### 3. Start the Demo Application
+In a separate terminal, launch the demo application configured in **broken** mode:
+```bash
+npm run demo:broken --prefix demo-app
+```
+*The demo application is now live at `http://localhost:3000`.*
 
-4. **Tear down with clean state**:
-   ```bash
-   docker compose down -v
-   ```
+### 4. Run the Ship Check
+1. In Chrome, navigate to `http://localhost:3000/?mode=broken`.
+2. Click the **HAVOC** extension icon to open the popup.
+3. Click **Start Ship Check**.
+4. Watch HAVOC autonomously execute the six check phases.
+5. Inspect the **Results** and click any finding to open the **Autopsy** screen with technical evidence and an LLM-ready fix prompt.
+6. Switch to `http://localhost:3000/?mode=fixed` and re-run to verify that all checks reach `READY` status!
 
-### Running Natively with Go
+---
 
-1. Provide `DATABASE_URL` and `PORT` environment variables (refer to `backend/.env.example`).
-2. Build and run the server:
-   ```bash
-   cd backend
-   go run ./cmd/havoc-api
-   ```
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Browser ["Chrome MV3 Browser Runtime"]
+        Popup["Popup UI (Svelte)"]
+        SW["Background Service Worker<br/>(ShipCheckOrchestrator & State)"]
+        CS["Content Script<br/>(MutationObserver & Relay)"]
+        Bridge["Page Bridge & Instrumentation<br/>(fetch / XHR / Error Interceptor)"]
+        IDB[("IndexedDB<br/>(Local Storage)")]
+        Target["Target Web Application"]
+
+        Popup <-->|"chrome.runtime"| SW
+        SW <-->|"chrome.scripting / runtime"| CS
+        CS <-->|"window.postMessage (Cryptographic Nonce)"| Bridge
+        Bridge <-->|"Wrappers & DOM"| Target
+        SW <--> IDB
+    end
+
+    subgraph Demo ["Local Benchmark"]
+        DemoServer["Demo Target App (Node.js)<br/>http://localhost:3000"]
+    end
+
+    subgraph Backend ["Optional Team Sync"]
+        API["Go REST API (Chi)<br/>http://localhost:8080"]
+        PG[("PostgreSQL 16")]
+
+        SW -.->|"POST /api/v1/projects/{id}/ship-checks"| API
+        API <--> PG
+    end
+
+    Target -.->|"Serves"| DemoServer
+```
+
+---
+
+## Evidence-Based Remediation (No LLM in the Loop)
+
+HAVOC does not manufacture opinions or rely on flaky LLM inference to decide whether an application failed. Findings are derived strictly through a causal pipeline:
+
+$$\text{Raw Events} \xrightarrow{\quad} \text{Synthesized Signals} \xrightarrow{\quad} \text{Evidence-Backed Finding} \xrightarrow{\quad} \text{Actionable Remediation}$$
+
+Remediations are generated deterministically by [`remediation-engine.ts`](extension/src/background/engine/remediation-engine.ts) from concrete evidence (exact URLs, status codes, line numbers, and DOM selectors), producing clean, copy-pasteable instructions ready for AI coding assistants.
+
+---
+
+## Repository Scripts
+
+Convenience scripts available at the repository root:
+
+| Command | Purpose |
+| :--- | :--- |
+| `npm run build:extension` | Build extension and execute `verify-build` check |
+| `npm run test:extension` | Run complete Vitest suite for extension |
+| `npm run test:backend` | Run Go unit and API tests in `backend/` |
+| `npm run test:demo` | Run Node.js smoke tests for `demo-app/` |
+| `npm run demo` | Start demo app server on port 3000 |
+| `npm run demo:broken` | Start demo app server forced into broken mode |
+| `npm run demo:fixed` | Start demo app server forced into fixed mode |
+
+---
+
+## Detailed Documentation
+
+- **[Architecture & Domain Model](docs/ARCHITECTURE.md)**: Full runtime chain, MV3 isolation layers, state machines, and data models.
+- **[Extension Setup & Build Constraints](docs/EXTENSION_SETUP.md)**: Detailed build mechanics, standalone IIFE constraints, and `verify-build` enforcement.
+- **[Ship Check Suite Reference](docs/SHIP_CHECKS.md)**: Comprehensive breakdown of all 6 checks, evidence capture, and remediation logic.
+- **[Demo Application Guide](docs/DEMO_APP.md)**: Deep dive into the 6 planted flaws, source locations, and benchmark modes.
+- **[Go Backend & PostgreSQL](docs/BACKEND.md)**: API routes, Docker Compose setup, configuration, and integration testing.
+- **[End-to-End Demonstration Guide](docs/END_TO_END_DEMO.md)**: Complete step-by-step walkthrough across the extension, demo app, and backend sync.
 
 ---
 
 ## License
 
-License information will be added before the first public release.
+See [LICENSE](LICENSE) for terms of use.

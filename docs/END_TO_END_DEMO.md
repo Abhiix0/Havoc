@@ -1,7 +1,7 @@
 # HAVOC End-to-End Demonstration Guide
 
 This guide walks through the complete HAVOC verification workflow across all components:
-1. **Demo Target Application** (`demo-app/`) running locally on port `4040`.
+1. **Demo Target Application** (`demo-app/`) running locally on port `3000`.
 2. **HAVOC Chrome Extension** (`extension/`) running as a Chrome Manifest V3 extension.
 3. **HAVOC Go Backend + Postgres** (`backend/` + Docker Compose) running on port `8080` & `5432`.
 4. **Automated End-to-End API Integration Test** (`backend/tests/integration/api_test.go`).
@@ -12,7 +12,7 @@ This guide walks through the complete HAVOC verification workflow across all com
 
 | Component | Role | Local Address |
 | :--- | :--- | :--- |
-| **Demo App** | Target application with 6 isolated flaws | `http://localhost:4040` |
+| **Demo App** | Target application with 6 isolated flaws | `http://localhost:3000` |
 | **HAVOC Extension** | In-browser autonomous resilience & chaos engine | Chrome Extension (`extension/dist`) |
 | **Go API (`havoc-api`)** | REST backend for report persistence & sync | `http://localhost:8080` |
 | **Postgres Database** | Relational storage for projects, ship checks & findings | `localhost:5432` |
@@ -53,11 +53,13 @@ npm run demo:broken --prefix demo-app
 
 **Output:**
 ```
-[HAVOC Demo App] Mode: BROKEN (6 deliberate flaws active)
-[HAVOC Demo App] Server listening at http://localhost:4040
+[HAVOC DEMO APP] listening on http://localhost:3000
+[HAVOC DEMO APP] active mode: BROKEN
+  - Broken demo: http://localhost:3000/?mode=broken
+  - Fixed demo:  http://localhost:3000/?mode=fixed
 ```
 
-Open `http://localhost:4040` in Google Chrome to inspect the demo dashboard. You will see a banner indicating `Mode: BROKEN` with deliberate flaws in network error handling, latency feedback, input fuzzing, runtime null access, client-side credentials, and viewport layout constraints.
+Open `http://localhost:3000` in Google Chrome to inspect the demo dashboard. You will see a banner indicating `Mode: BROKEN` with deliberate flaws in network error handling, latency feedback, input fuzzing, runtime null access, client-side credentials, and viewport layout constraints.
 
 ---
 
@@ -89,16 +91,16 @@ Open `http://localhost:4040` in Google Chrome to inspect the demo dashboard. You
 
 ## Step 5: Run Ship Check Against Broken Demo App
 
-1. Navigate to `http://localhost:4040` in your active browser tab.
+1. Navigate to `http://localhost:3000` in your active browser tab.
 2. Open the HAVOC extension popup.
 3. Click **Start Ship Check**.
 4. Observe the real-time execution across the 6 autonomous check phases:
-   - `fetch_failure`: Intercepts and tests `/api/items?fail=true`
-   - `fetch_latency`: Evaluates UI behavior under delayed `/api/slow-endpoint`
-   - `input_stress`: Fuzzes input fields with boundary inputs
-   - `runtime_errors`: Observes unhandled exceptions and console errors
-   - `secret_scan`: Scans client DOM and scripts for sensitive patterns
-   - `viewport_stress`: Tests layout responsiveness across viewport widths
+   - `fetch_failure`: Testing API failures
+   - `fetch_latency`: Testing slow API responses
+   - `input_stress`: Testing form inputs
+   - `runtime_errors`: Checking for runtime errors
+   - `secret_scan`: Scanning for exposed secrets
+   - `viewport_stress`: Testing narrow screens
 
 ### Expected Results (Broken Mode)
 - **Readiness**: `NEEDS_ATTENTION` or `BLOCKED` (Amber/Red status tag)
@@ -116,7 +118,7 @@ Open `http://localhost:4040` in Google Chrome to inspect the demo dashboard. You
 ## Step 6: Inspect Autopsy & Copy Fix Prompt
 
 1. Click on any finding (e.g. `fetch_failure` or `runtime_errors`) to open the **Autopsy** screen.
-2. Review the four structured remediation sections:
+2. Review the structured remediation sections:
    - **What Happened**: Clear root cause breakdown.
    - **Why It Matters**: Business and user experience impact.
    - **How To Fix**: Concrete engineering steps.
@@ -127,14 +129,14 @@ Open `http://localhost:4040` in Google Chrome to inspect the demo dashboard. You
 
 ## Step 7: Switch Demo App to Fixed Mode & Re-test
 
-Switch the demo target application to **fixed** mode either by clicking the switch link in the web banner (`http://localhost:4040?mode=fixed`) or running:
+Switch the demo target application to **fixed** mode either by clicking the switch link in the web banner (`http://localhost:3000?mode=fixed`) or running:
 
 ```bash
 npm run demo:fixed --prefix demo-app
 ```
 
 Now rerun the Ship Check in HAVOC:
-1. Reload `http://localhost:4040`.
+1. Reload `http://localhost:3000`.
 2. Open HAVOC and click **Start Ship Check**.
 3. Observe all 6 steps complete cleanly.
 
@@ -182,7 +184,7 @@ curl -s "http://localhost:8080/api/v1/projects/${PROJECT_ID}/ship-checks"
       "id": "e2c34a9b-1188-4e12-b9cf-8924b1720892",
       "projectId": "7b0d2d3a-14d2-43e5-82b5-8dc87dfbf4a2",
       "clientShipCheckId": "c89b1c70-ea8d-4e9b-b0b3-9e598b9bf901",
-      "targetOrigin": "http://localhost:4040",
+      "targetOrigin": "http://localhost:3000",
       "readiness": "NEEDS_ATTENTION",
       "createdAt": "2026-09-06T06:10:00Z",
       "completedAt": "2026-09-06T06:10:12Z",
