@@ -27,7 +27,28 @@ describe('HAVOC Demo App Server Smoke Tests', () => {
     assert.strictEqual(res.status, 200);
     const text = await res.text();
     assert.ok(text.includes('HAVOC Microservice Dashboard'));
-    assert.ok(text.includes('STRIPE_TEST_SECRET')); // Flaw E fake credential present in broken mode
+    assert.ok(text.includes('STRIPE_TEST_SECRET')); // Flaw E fake credential present in default broken mode
+    assert.ok(text.includes('sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234'));
+  });
+
+  it('serves index.html with ?mode=fixed without any fake credentials (Flaw E resolved)', async () => {
+    const res = await fetch(`${baseUrl}/?mode=fixed`);
+    assert.strictEqual(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes('HAVOC Microservice Dashboard'));
+    assert.ok(text.includes('pub_client_safe_demo_9876'));
+    // Crucial: Zero occurrences of fake credential markers anywhere in the fixed variant response body
+    assert.strictEqual(text.includes('FAKEDEMOFAKEDEMO'), false, 'Fixed mode must not contain FAKEDEMOFAKEDEMO');
+    assert.strictEqual(text.includes('AKIAFAKEFAKEFAKE'), false, 'Fixed mode must not contain AKIAFAKEFAKEFAKE');
+    assert.strictEqual(text.includes('STRIPE_TEST_SECRET'), false, 'Fixed mode must not contain STRIPE_TEST_SECRET');
+  });
+
+  it('serves index.html with ?mode=broken with fake credentials present (Flaw E active)', async () => {
+    const res = await fetch(`${baseUrl}/?mode=broken`);
+    assert.strictEqual(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes('sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234'));
+    assert.ok(text.includes('AKIAFAKEFAKEFAKE1234'));
   });
 
   it('serves static assets (css, js)', async () => {

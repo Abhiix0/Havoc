@@ -9,29 +9,11 @@
   <!-- 
     ========================================================================
     FLAW E (SECRET_SCAN Check Target):
-    FAKE CREDENTIAL FOR HAVOC DEMO PURPOSES ONLY — DOES NOT WORK,
-    DO NOT REPORT AS A REAL LEAK.
-    In broken mode, this fake test key is exposed in the client script bundle.
-    In fixed mode, sensitive configuration is kept server-side.
+    App configuration dynamically injected by server.js based on active mode.
     ========================================================================
   -->
   <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const activeMode = urlParams.get('mode') || 'broken';
-    
-    if (activeMode === 'broken') {
-      // FAKE CREDENTIAL FOR HAVOC DEMO PURPOSES ONLY — DOES NOT WORK, DO NOT REPORT AS A REAL LEAK.
-      window.__APP_CONFIG__ = {
-        ENV: 'demo-broken',
-        STRIPE_TEST_SECRET: 'sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234',
-        AWS_BACKUP_ACCESS_KEY: 'AKIAFAKEFAKEFAKE1234'
-      };
-    } else {
-      window.__APP_CONFIG__ = {
-        ENV: 'demo-fixed',
-        PUBLIC_CLIENT_ID: 'pub_client_safe_demo_9876'
-      };
-    }
+    window.__APP_CONFIG__ = %%APP_CONFIG_JSON%%;
   </script>
 </head>
 <body>

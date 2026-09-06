@@ -154,8 +154,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnApplyTag = document.getElementById('btn-apply-tag');
   const tagOutput = document.getElementById('tag-output');
 
-  btnApplyTag.addEventListener('click', () => {
+  function applyTag() {
     const rawValue = tagInput.value;
+    if (!rawValue) return;
 
     if (!isFixedMode) {
       // BROKEN VARIANT:
@@ -174,7 +175,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const serviceName = (parts.length > 1 ? parts.slice(1).join('-') : parts[0] || 'UNNAMED').trim();
       tagOutput.textContent = `Registered: [${category}] :: ${serviceName}`;
     }
-  });
+  }
+
+  btnApplyTag.addEventListener('click', applyTag);
+  tagInput.addEventListener('blur', applyTag);
+  tagInput.addEventListener('change', applyTag);
 
   // =========================================================================
   // FLAW D (REALISTIC RUNTIME ERROR):

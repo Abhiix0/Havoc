@@ -31,6 +31,24 @@ const SAMPLE_ITEMS = [
   { id: 'item-4', code: 'SRV-INVENTORY', title: 'Inventory Sync Worker', status: 'ACTIVE' },
 ];
 
+// =========================================================================
+// FLAW E (SECRET_SCAN Check Target):
+// FAKE CREDENTIAL FOR HAVOC DEMO PURPOSES ONLY — DOES NOT WORK,
+// DO NOT REPORT AS A REAL LEAK.
+// In broken mode, this fake test key is exposed in the client script bundle.
+// In fixed mode, sensitive configuration is kept server-side.
+// =========================================================================
+const BROKEN_APP_CONFIG = {
+  ENV: 'demo-broken',
+  STRIPE_TEST_SECRET: 'sk_test_FAKEDEMOFAKEDEMOFAKEDEMO1234',
+  AWS_BACKUP_ACCESS_KEY: 'AKIAFAKEFAKEFAKE1234',
+};
+
+const FIXED_APP_CONFIG = {
+  ENV: 'demo-fixed',
+  PUBLIC_CLIENT_ID: 'pub_client_safe_demo_9876',
+};
+
 export function createServer(initialMode = defaultMode) {
   let currentMode = initialMode;
 
@@ -89,8 +107,9 @@ export function createServer(initialMode = defaultMode) {
       return;
     }
 
-    // 4. Static Assets
-    let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
+    // 4. Static Assets & Dynamic index.html template substitution
+    const isIndexHtml = pathname === '/' || pathname === '/index.html';
+    let filePath = path.join(PUBLIC_DIR, isIndexHtml ? 'index.html' : pathname);
 
     // Normalize path to prevent directory traversal
     if (!filePath.startsWith(PUBLIC_DIR)) {
@@ -99,7 +118,7 @@ export function createServer(initialMode = defaultMode) {
       return;
     }
 
-    fs.readFile(filePath, (err, content) => {
+    fs.readFile(filePath, isIndexHtml ? 'utf8' : null, (err, content) => {
       if (err) {
         if (err.code === 'ENOENT') {
           res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -108,6 +127,14 @@ export function createServer(initialMode = defaultMode) {
           res.writeHead(500, { 'Content-Type': 'text/plain' });
           res.end('Internal Server Error');
         }
+        return;
+      }
+
+      if (isIndexHtml && typeof content === 'string') {
+        const configToInject = requestMode === 'fixed' ? FIXED_APP_CONFIG : BROKEN_APP_CONFIG;
+        const renderedHtml = content.replace('%%APP_CONFIG_JSON%%', JSON.stringify(configToInject));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderedHtml);
         return;
       }
 
