@@ -356,4 +356,157 @@ describe('Ship Check Orchestrator', () => {
     const result = await startShipCheck(target);
     expect(syncShipCheck).toHaveBeenCalledWith(result.shipCheckId);
   });
+
+  describe('Terminal Readiness Completeness Pass (Per Check Kind)', () => {
+    const allStepKinds: ShipCheckStepKind[] = [
+      'runtime_errors',
+      'fetch_latency',
+      'fetch_failure',
+      'input_stress',
+      'viewport_stress',
+      'secret_scan',
+    ];
+
+    const VALID_READINESS: ReadonlySet<string> = new Set([
+      'READY',
+      'NEEDS_ATTENTION',
+      'BLOCKED',
+      'UNKNOWN',
+    ]);
+
+    const VALID_STEP_STATUSES: ReadonlySet<string> = new Set([
+      'PENDING',
+      'RUNNING',
+      'DONE',
+      'SKIPPED',
+      'ERRORED',
+    ]);
+
+    for (const kind of allStepKinds) {
+      it(`check kind "${kind}" always resolves to a valid defined readiness status (HIGH -> BLOCKED, MEDIUM -> NEEDS_ATTENTION, clean -> READY, error -> UNKNOWN)`, async () => {
+        vi.mocked(verifyTarget).mockResolvedValue({ ok: true });
+
+        // 1. HIGH finding -> BLOCKED
+        vi.mocked(startPassiveCheck).mockImplementation(async (def) => ({
+          runId: `run-${def.kind}`,
+          target,
+          definition: def,
+          state: 'COMPLETED',
+          createdAt: 1000,
+          updatedAt: 2000,
+        }));
+        vi.mocked(startRun).mockImplementation(async (def) => ({
+          runId: `run-${def.kind}`,
+          target,
+          definition: def,
+          state: 'COMPLETED',
+          createdAt: 1000,
+          updatedAt: 2000,
+        }));
+
+        vi.mocked(getFindingsByRunId).mockImplementation(async (runId) => {
+          if (runId === `run-${kind}`) {
+            return [
+              {
+                id: `finding-${kind}`,
+                runId,
+                severity: 'HIGH',
+                confidence: 0.9,
+                description: `High severity issue in ${kind}`,
+                evidenceIds: [],
+                checkKind: kind,
+              },
+            ];
+          }
+          return [];
+        });
+
+        const blockedResult = await startShipCheck(target);
+        expect(VALID_READINESS.has(blockedResult.readiness)).toBe(true);
+        expect(blockedResult.readiness).toBe('BLOCKED');
+        for (const s of blockedResult.steps) {
+          expect(VALID_STEP_STATUSES.has(s.status)).toBe(true);
+          expect(s.status).not.toBeNull();
+          expect(s.status).not.toBeUndefined();
+        }
+
+        // 2. MEDIUM finding -> NEEDS_ATTENTION
+        vi.mocked(getFindingsByRunId).mockImplementation(async (runId) => {
+          if (runId === `run-${kind}`) {
+            return [
+              {
+                id: `finding-${kind}`,
+                runId,
+                severity: 'MEDIUM',
+                confidence: 0.8,
+                description: `Medium severity issue in ${kind}`,
+                evidenceIds: [],
+                checkKind: kind,
+              },
+            ];
+          }
+          return [];
+        });
+
+        const needsAttentionResult = await startShipCheck(target);
+        expect(VALID_READINESS.has(needsAttentionResult.readiness)).toBe(true);
+        expect(needsAttentionResult.readiness).toBe('NEEDS_ATTENTION');
+
+        // 3. Clean -> READY
+        vi.mocked(getFindingsByRunId).mockResolvedValue([]);
+        const readyResult = await startShipCheck(target);
+        expect(VALID_READINESS.has(readyResult.readiness)).toBe(true);
+        expect(readyResult.readiness).toBe('READY');
+
+        // 4. Step Error -> UNKNOWN
+        if (kind === 'runtime_errors' || kind === 'secret_scan') {
+          vi.mocked(startPassiveCheck).mockImplementation(async (def) => {
+            if (def.kind === kind) {
+              return {
+                runId: `run-${def.kind}`,
+                target,
+                definition: def,
+                state: 'FAILED',
+                createdAt: 1000,
+                updatedAt: 2000,
+              };
+            }
+            return {
+              runId: `run-${def.kind}`,
+              target,
+              definition: def,
+              state: 'COMPLETED',
+              createdAt: 1000,
+              updatedAt: 2000,
+            };
+          });
+        } else {
+          vi.mocked(startRun).mockImplementation(async (def) => {
+            if (def.kind === kind) {
+              return {
+                runId: `run-${def.kind}`,
+                target,
+                definition: def,
+                state: 'FAILED',
+                createdAt: 1000,
+                updatedAt: 2000,
+              };
+            }
+            return {
+              runId: `run-${def.kind}`,
+              target,
+              definition: def,
+              state: 'COMPLETED',
+              createdAt: 1000,
+              updatedAt: 2000,
+            };
+          });
+        }
+
+        const unknownResult = await startShipCheck(target);
+        expect(VALID_READINESS.has(unknownResult.readiness)).toBe(true);
+        expect(unknownResult.readiness).toBe('UNKNOWN');
+      });
+    }
+  });
 });
