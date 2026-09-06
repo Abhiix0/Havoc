@@ -34,7 +34,7 @@ describe('Chaos Injector', () => {
     });
   });
 
-  describe('ensureContentScriptInjected', () => {
+  describe('ensureContentScriptInjected and pingContentScript', () => {
     it('1. when content script responds to ping, chrome.scripting.executeScript is never called', async () => {
       vi.mocked(chrome.tabs.sendMessage).mockResolvedValueOnce(createPongMessage());
 
@@ -47,17 +47,17 @@ describe('Chaos Injector', () => {
       expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
     });
 
-    it('2. when content script is not present (ping rejects), chrome.scripting.executeScript is called exactly once', async () => {
+    it('2. when content script is not present (ping rejects), chrome.scripting.executeScript is called exactly once without retry', async () => {
+      // First ping rejects (unambiguous rejection skips retry)
       vi.mocked(chrome.tabs.sendMessage).mockRejectedValueOnce(
         new Error('Could not establish connection. Receiving end does not exist.')
       );
+      // Post-injection verification ping succeeds (handled by default mock in beforeEach)
 
       await ensureContentScriptInjected(42);
 
-      expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({ type: 'PING' })
-      );
+      // Called twice total: initial ping (rejected) + post-injection verification ping
+      expect(chrome.tabs.sendMessage).toHaveBeenCalledTimes(2);
       expect(chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
       expect(chrome.scripting.executeScript).toHaveBeenCalledWith({
         target: { tabId: 42 },
@@ -66,7 +66,7 @@ describe('Chaos Injector', () => {
     });
 
     it('3. called twice in a row: first call injects when not present, second call detects presence and does not re-inject', async () => {
-      // First call: content script not present -> ping rejects -> executes script
+      // First call: content script not present -> ping rejects -> executes script -> verify ping succeeds
       vi.mocked(chrome.tabs.sendMessage).mockRejectedValueOnce(
         new Error('Could not establish connection. Receiving end does not exist.')
       );
@@ -79,16 +79,42 @@ describe('Chaos Injector', () => {
       expect(chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
     });
 
-    it('4. when ping never resolves (hung tab), proceeds to injection within the timeout window without hanging forever', async () => {
+    it('4. when first ping attempt times out, second attempt succeeds -> pingContentScript resolves true, executeScript is NEVER called', async () => {
       vi.useFakeTimers();
       try {
-        // Mock chrome.tabs.sendMessage to return a promise that never settles
+        // First ping hangs (times out after 800ms)
         vi.mocked(chrome.tabs.sendMessage).mockReturnValueOnce(new Promise(() => {}));
+        // Second ping (after 200ms retry delay) succeeds with PONG
+        vi.mocked(chrome.tabs.sendMessage).mockResolvedValueOnce(createPongMessage());
 
         const injectionPromise = ensureContentScriptInjected(42);
 
-        // Fast-forward past the 300ms timeout
-        await vi.advanceTimersByTimeAsync(350);
+        // Advance through first timeout (800ms) + retry delay (200ms)
+        await vi.advanceTimersByTimeAsync(1100);
+
+        await injectionPromise;
+
+        // executeScript was never called because the retry succeeded
+        expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('5. when both ping attempts time out, proceeds to injection and verifies', async () => {
+      vi.useFakeTimers();
+      try {
+        // First ping hangs
+        vi.mocked(chrome.tabs.sendMessage).mockReturnValueOnce(new Promise(() => {}));
+        // Second ping hangs
+        vi.mocked(chrome.tabs.sendMessage).mockReturnValueOnce(new Promise(() => {}));
+        // Post-injection verification ping succeeds
+        vi.mocked(chrome.tabs.sendMessage).mockResolvedValueOnce(createPongMessage());
+
+        const injectionPromise = ensureContentScriptInjected(42);
+
+        // Advance past first timeout (800ms) + delay (200ms) + second timeout (800ms)
+        await vi.advanceTimersByTimeAsync(1900);
 
         await injectionPromise;
 
@@ -100,6 +126,21 @@ describe('Chaos Injector', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('6. fresh injection succeeds (executeScript resolves) but post-injection verification ping fails -> throws specific error', async () => {
+      // First ping rejects -> triggers fresh injection
+      vi.mocked(chrome.tabs.sendMessage).mockRejectedValueOnce(
+        new Error('Could not establish connection. Receiving end does not exist.')
+      );
+      // Post-injection verification ping fails
+      vi.mocked(chrome.tabs.sendMessage).mockRejectedValueOnce(
+        new Error('Receiving end does not exist')
+      );
+
+      await expect(ensureContentScriptInjected(42)).rejects.toThrow(
+        'HAVOC injected the content script into tab 42 but it did not respond to a liveness check afterward'
+      );
     });
   });
 
@@ -241,9 +282,12 @@ describe('Chaos Injector', () => {
 
   describe('injectChaos', () => {
     it('throws ContentScriptUnavailableError when receiving end does not exist', async () => {
-      vi.mocked(chrome.tabs.sendMessage).mockRejectedValue(
-        new Error('Could not establish connection. Receiving end does not exist.')
-      );
+      vi.mocked(chrome.tabs.sendMessage).mockImplementation(async (_tabId, msg: unknown) => {
+        if (typeof msg === 'object' && msg !== null && 'type' in msg && (msg as { type: unknown }).type === 'PING') {
+          return createPongMessage();
+        }
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      });
 
       const registry = new ResourceRegistry();
       const params = {

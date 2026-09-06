@@ -42,40 +42,55 @@ export class ContentScriptUnavailableError extends Error {
 }
 
 const CONTENT_SCRIPT_ABSENT_PATTERN = /receiving end does not exist/i;
-const PING_TIMEOUT_MS = 300;
+const PING_TIMEOUT_MS = 800;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-async function pingContentScript(tabId: number): Promise<boolean> {
+export async function singlePingAttempt(tabId: number): Promise<'pong' | 'timeout' | 'rejected'> {
   try {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const pingPromise = chrome.tabs.sendMessage(tabId, createPingMessage()).then(
-      (response) => {
+    const pingPromise: Promise<'pong' | 'rejected'> = chrome.tabs.sendMessage(tabId, createPingMessage()).then(
+      (response): 'pong' | 'rejected' => {
         if (timer !== undefined) clearTimeout(timer);
         console.log(`[HAVOC][chaos] ping OK for tab ${tabId}`);
-        return response !== undefined && response !== null;
+        return response !== undefined && response !== null ? 'pong' : 'rejected';
       },
-      (err: unknown) => {
+      (err: unknown): 'rejected' => {
         if (timer !== undefined) clearTimeout(timer);
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[HAVOC][chaos] ping REJECTED for tab ${tabId}: ${msg} — assuming not present`);
-        return false;
+        return 'rejected';
       }
     );
-    const timeoutPromise = new Promise<boolean>((resolve) => {
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => {
         console.warn(`[HAVOC][chaos] ping TIMEOUT (${PING_TIMEOUT_MS}ms) for tab ${tabId} — assuming not present`);
-        resolve(false);
+        resolve('timeout');
       }, PING_TIMEOUT_MS);
     });
     return await Promise.race([pingPromise, timeoutPromise]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[HAVOC][chaos] ping REJECTED for tab ${tabId}: ${msg} — assuming not present`);
-    return false;
+    return 'rejected';
   }
+}
+
+export async function pingContentScript(tabId: number): Promise<boolean> {
+  const first = await singlePingAttempt(tabId);
+  if (first === 'pong') return true;
+  if (first === 'rejected') return false; // unambiguous — genuinely absent, skip retry
+
+  // first === 'timeout' — ambiguous, retry once after 200ms
+  await delay(200);
+  const second = await singlePingAttempt(tabId);
+  return second === 'pong';
 }
 
 export async function ensureContentScriptInjected(tabId: number): Promise<void> {
@@ -92,6 +107,12 @@ export async function ensureContentScriptInjected(tabId: number): Promise<void> 
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[HAVOC][chaos] ensureContentScriptInjected failed for tab ${tabId}:`, msg);
     throw new Error('HAVOC cannot run on this type of page');
+  }
+
+  // Verify the fresh injection actually registered its listener before declaring success
+  const verified = await singlePingAttempt(tabId);
+  if (verified !== 'pong') {
+    throw new Error(`HAVOC injected the content script into tab ${tabId} but it did not respond to a liveness check afterward`);
   }
 }
 
